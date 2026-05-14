@@ -285,6 +285,62 @@ func TestGitCommand_AddWorktree(t *testing.T) {
 	}
 }
 
+func TestGitCommand_AddWorktreeNewBranch(t *testing.T) {
+	tests := []struct {
+		name       string
+		repoPath   string
+		path       string
+		branchName string
+		baseBranch string
+		runErr     error
+		wantArgs   []string
+		expectErr  string
+	}{
+		{
+			name:       "invokes git worktree add with -b flag",
+			repoPath:   "/repo/main",
+			path:       "/repo/worktrees/feat-issue-5-modals",
+			branchName: "feat/issue-5-modals",
+			baseBranch: "main",
+			wantArgs:   []string{"worktree", "add", "-b", "feat/issue-5-modals", "/repo/worktrees/feat-issue-5-modals", "main"},
+		},
+		{
+			name:       "returns runner error",
+			repoPath:   "/repo/main",
+			path:       "/repo/worktrees/feat-issue-5-modals",
+			branchName: "feat/issue-5-modals",
+			baseBranch: "main",
+			runErr:     errors.New("git failed"),
+			wantArgs:   []string{"worktree", "add", "-b", "feat/issue-5-modals", "/repo/worktrees/feat-issue-5-modals", "main"},
+			expectErr:  "git failed",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var calledArgs []string
+
+			runner := func(repoPath string, args ...string) (string, error) {
+				calledArgs = append([]string{}, args...)
+				return "", tt.runErr
+			}
+
+			cmd := NewGitCommandWithRunner(tt.repoPath, runner)
+			err := cmd.AddWorktreeNewBranch(tt.path, tt.branchName, tt.baseBranch)
+
+			assert.Equal(t, tt.wantArgs, calledArgs)
+
+			if tt.expectErr != "" {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.expectErr)
+				return
+			}
+
+			require.NoError(t, err)
+		})
+	}
+}
+
 func TestGitCommand_RemoveWorktree(t *testing.T) {
 	tests := []struct {
 		name      string

@@ -55,6 +55,11 @@ func (g *GitCommand) ListWorktrees() ([]domain.Worktree, error) {
 	return worktrees, nil
 }
 
+// AddWorktreeNewBranch creates a new worktree and branch: git worktree add -b <branch> <path> <baseBranch>.
+func (g *GitCommand) AddWorktreeNewBranch(path, branchName, baseBranch string) error {
+	return g.runNoOutput("add worktree new branch", "worktree", "add", "-b", branchName, path, baseBranch)
+}
+
 // AddWorktree adds a new worktree at path for branch.
 func (g *GitCommand) AddWorktree(path, branch string) error {
 	return g.runNoOutput("add worktree", "worktree", "add", path, branch)
