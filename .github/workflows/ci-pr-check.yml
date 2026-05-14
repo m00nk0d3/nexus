@@ -1,0 +1,30 @@
+name: PR Check
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, edited, synchronize, reopened]
+
+jobs:
+  pr-description:
+    name: Validate PR Description
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check PR description is not empty
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          if [ -z "$(echo "$PR_BODY" | tr -d '[:space:]')" ]; then
+            echo "❌ PR description is empty. Please describe what changed and why."
+            exit 1
+          fi
+
+          MIN_LENGTH=50
+          BODY_LENGTH=${#PR_BODY}
+          if [ "$BODY_LENGTH" -lt "$MIN_LENGTH" ]; then
+            echo "❌ PR description is too short ($BODY_LENGTH chars). Minimum is $MIN_LENGTH."
+            exit 1
+          fi
+
+          echo "✅ PR description looks good ($BODY_LENGTH chars)."
