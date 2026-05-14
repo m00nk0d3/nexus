@@ -111,11 +111,17 @@ func runGitCommand(repoPath string, args ...string) (string, error) {
 	cmd.Dir = repoPath
 
 	out, err := cmd.CombinedOutput()
+	output := string(out)
 	if err != nil {
+		trimmedOutput := strings.TrimSpace(output)
+		if trimmedOutput != "" {
+			return "", fmt.Errorf("run git %s: %w; output: %s", strings.Join(args, " "), err, trimmedOutput)
+		}
+
 		return "", fmt.Errorf("run git %s: %w", strings.Join(args, " "), err)
 	}
 
-	return string(out), nil
+	return output, nil
 }
 
 func parseWorktreeListPorcelain(porcelain string) ([]domain.Worktree, error) {

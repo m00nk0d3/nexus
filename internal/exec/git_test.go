@@ -543,3 +543,11 @@ func TestGitCommand_UnlockWorktree(t *testing.T) {
 		})
 	}
 }
+
+func TestRunGitCommand_IncludesOutputOnFailure(t *testing.T) {
+	_, err := runGitCommand(t.TempDir(), "not-a-real-git-subcommand")
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "run git not-a-real-git-subcommand")
+	assert.Contains(t, err.Error(), "output:")
+}
