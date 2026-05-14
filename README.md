@@ -210,6 +210,11 @@ Planned SQLite tables:
 
 This repository currently contains the project plan and documentation scaffolding. The implementation is still pending.
 
+## Documentation
+
+- [Project plan](docs/PLAN.md)
+- [Runbook](docs/RUNBOOK.md)
+
 ## License
 
 Add a license before publishing the project publicly.
