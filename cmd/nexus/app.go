@@ -2,12 +2,13 @@ package main
 
 import (
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/m00nk0d3/nexus/internal/domain"
 )
 
 // Model represents the root Bubbletea model for the Nexus TUI application.
 // It holds the current state of the application.
 type Model struct {
-	// Add fields here as the application grows
+	Worktrees []domain.Worktree
 }
 
 // NewModel creates and returns a new Model instance with all required fields initialized.
@@ -42,5 +43,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // View returns a string representation of the model's current state.
 // This is rendered to the terminal on each update.
 func (m *Model) View() string {
+	if len(m.Worktrees) > 0 {
+		return renderWorktreeList(m.Worktrees)
+	}
+
 	return "Nexus TUI"
 }
