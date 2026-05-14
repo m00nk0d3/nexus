@@ -1,0 +1,52 @@
+name: "Copilot Setup Steps"
+
+# Automatically run the setup steps when they are changed to allow for easy validation,
+# and allow manual testing through the repository's "Actions" tab
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - .github/workflows/copilot-setup-steps.yml
+  pull_request:
+    paths:
+      - .github/workflows/copilot-setup-steps.yml
+
+jobs:
+  # The job MUST be called `copilot-setup-steps` or it will not be picked up by Copilot.
+  copilot-setup-steps:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go 1.22
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+          cache: "mod"
+
+      - name: Download Go dependencies
+        run: go mod download
+        env:
+          GO111MODULE: "on"
+
+      - name: Create test directory structure
+        run: |
+          mkdir -p internal/domain
+          mkdir -p internal/data
+          mkdir -p internal/tui
+          mkdir -p internal/exec
+          mkdir -p cmd/nexus
+
+      - name: Verify Go environment
+        run: |
+          go version
+          go env
+          echo "Go environment verified"
+
+      - name: List project structure
+        run: find . -type f -name "*.go" | head -20
