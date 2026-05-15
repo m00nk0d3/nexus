@@ -10,6 +10,7 @@ import (
 	"github.com/m00nk0d3/nexus/internal/domain"
 	internalexec "github.com/m00nk0d3/nexus/internal/exec"
 	"github.com/m00nk0d3/nexus/internal/tui/modal"
+	"github.com/m00nk0d3/nexus/internal/tui/styles"
 )
 
 // issuesFetchedMsg carries the result of a background gh issue list call.
@@ -36,6 +37,7 @@ type Model struct {
 	selectedIdx int               // Currently selected worktree index
 	activeModal tea.Model         // Currently open modal (if any)
 	Error       string            // Error message to display (if any)
+	themeIdx    int               // Index into styles.Themes for the active theme
 }
 
 // NewModel creates and returns a new Model instance with all required fields initialized.
@@ -93,6 +95,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.selectedIdx < len(m.Worktrees)-1 {
 				m.selectedIdx++
 			}
+		case tea.KeyRunes:
+			if msg.String() == "t" {
+				m.themeIdx = (m.themeIdx + 1) % len(styles.Themes)
+			}
 		}
 
 	case issuesFetchedMsg:
@@ -128,13 +134,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // View returns a string representation of the model's current state.
 func (m *Model) View() string {
-	baseView := ""
+	var baseView string
 	if m.activeModal != nil {
 		baseView = m.activeModal.View()
-	} else if len(m.Worktrees) > 0 {
-		baseView = renderWorktreeList(m.Worktrees)
 	} else {
-		baseView = "Nexus TUI"
+		baseView = renderFull(m.Worktrees, m.selectedIdx, m.RepoPath, m.themeIdx)
 	}
 
 	if m.Error == "" {
