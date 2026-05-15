@@ -457,5 +457,95 @@ func TestModelView_ShowsErrorMessage(t *testing.T) {
 
 	view := model.View()
 	assert.Contains(t, view, "Error: Failed to switch worktree: boom")
-	assert.Contains(t, view, "Nexus TUI")
+	assert.Contains(t, view, "GIT WORKTREE ORCHESTRATOR")
+}
+
+func TestModel_T_KeyCyclesTheme(t *testing.T) {
+	tests := []struct {
+		name         string
+		initialIdx   int
+		pressCount   int
+		wantThemeIdx int
+	}{
+		{
+			name:         "first press increments from digital-noir to matrix",
+			initialIdx:   0,
+			pressCount:   1,
+			wantThemeIdx: 1,
+		},
+		{
+			name:         "second press increments from matrix to light",
+			initialIdx:   1,
+			pressCount:   1,
+			wantThemeIdx: 2,
+		},
+		{
+			name:         "wraps from light back to digital-noir",
+			initialIdx:   2,
+			pressCount:   1,
+			wantThemeIdx: 0,
+		},
+		{
+			name:         "three presses cycles through all themes and returns to start",
+			initialIdx:   0,
+			pressCount:   3,
+			wantThemeIdx: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			model := NewModel()
+			require.NotNil(t, model)
+			model.themeIdx = tt.initialIdx
+
+			for i := 0; i < tt.pressCount; i++ {
+				updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'t'}})
+				var ok bool
+				model, ok = updated.(*Model)
+				require.True(t, ok)
+			}
+
+			assert.Equal(t, tt.wantThemeIdx, model.themeIdx)
+		})
+	}
+}
+
+func TestModel_WindowSizeMsg_StoresTerminalWidth(t *testing.T) {
+	tests := []struct {
+		name       string
+		msgWidth   int
+		msgHeight  int
+		wantWidth  int
+		wantHeight int
+	}{
+		{
+			name:       "stores width from WindowSizeMsg",
+			msgWidth:   160,
+			msgHeight:  50,
+			wantWidth:  160,
+			wantHeight: 50,
+		},
+		{
+			name:       "stores minimum width from WindowSizeMsg",
+			msgWidth:   80,
+			msgHeight:  24,
+			wantWidth:  80,
+			wantHeight: 24,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			model := NewModel()
+			require.NotNil(t, model)
+
+			updated, _ := model.Update(tea.WindowSizeMsg{Width: tt.msgWidth, Height: tt.msgHeight})
+			m, ok := updated.(*Model)
+			require.True(t, ok)
+
+			assert.Equal(t, tt.wantWidth, m.width)
+			assert.Equal(t, tt.wantHeight, m.height)
+		})
+	}
 }

@@ -10,6 +10,7 @@ import (
 	"github.com/m00nk0d3/nexus/internal/domain"
 	internalexec "github.com/m00nk0d3/nexus/internal/exec"
 	"github.com/m00nk0d3/nexus/internal/tui/modal"
+	"github.com/m00nk0d3/nexus/internal/tui/styles"
 )
 
 // issuesFetchedMsg carries the result of a background gh issue list call.
@@ -36,6 +37,10 @@ type Model struct {
 	selectedIdx int               // Currently selected worktree index
 	activeModal tea.Model         // Currently open modal (if any)
 	Error       string            // Error message to display (if any)
+	themeIdx    int               // Index into styles.Themes for the active theme
+	activeNav   int               // Index of the active nav rail section (0=W,1=I,2=P,3=T)
+	width       int               // Terminal width in columns; 0 means use default
+	height      int               // Terminal height in rows; 0 means use default
 }
 
 // NewModel creates and returns a new Model instance with all required fields initialized.
@@ -43,9 +48,9 @@ func NewModel() *Model {
 	return &Model{}
 }
 
-// Init initializes the model and returns an initial command.
+// Init initializes the model and triggers an initial worktree list load.
 func (m *Model) Init() tea.Cmd {
-	return nil
+	return m.refreshWorktreesCmd()
 }
 
 // Update handles incoming messages and returns an updated model and command.
@@ -93,6 +98,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.selectedIdx < len(m.Worktrees)-1 {
 				m.selectedIdx++
 			}
+		case tea.KeyRunes:
+			if msg.String() == "t" {
+				m.themeIdx = (m.themeIdx + 1) % len(styles.Themes)
+			}
 		}
 
 	case issuesFetchedMsg:
@@ -117,10 +126,16 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err == nil {
 			m.Worktrees = msg.worktrees
 			m.clampSelectedIdx()
+			// Always use the main worktree (first entry) as the canonical repo path
+			// so the header shows the repo name rather than the current worktree dir.
+			if len(msg.worktrees) > 0 {
+				m.RepoPath = msg.worktrees[0].Path
+			}
 		}
 
 	case tea.WindowSizeMsg:
-		// handled for future layout use
+		m.width = msg.Width
+		m.height = msg.Height
 	}
 
 	return m, nil
@@ -128,13 +143,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // View returns a string representation of the model's current state.
 func (m *Model) View() string {
-	baseView := ""
+	var baseView string
 	if m.activeModal != nil {
 		baseView = m.activeModal.View()
-	} else if len(m.Worktrees) > 0 {
-		baseView = renderWorktreeList(m.Worktrees)
 	} else {
-		baseView = "Nexus TUI"
+		baseView = renderFull(m.Worktrees, m.selectedIdx, m.RepoPath, m.themeIdx, m.activeNav, m.width, m.height)
 	}
 
 	if m.Error == "" {
