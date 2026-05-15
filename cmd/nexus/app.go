@@ -181,11 +181,22 @@ func (m *Model) switchWorktreeCmd(path string) tea.Cmd {
 // On Windows, it uses cmd.exe with /K flag to keep the shell open.
 // On Unix-like systems, it uses the SHELL environment variable, defaulting to /bin/sh.
 func buildShellCmd(path string) *exec.Cmd {
-	if runtime.GOOS == "windows" {
-		return exec.Command("cmd", "/K", "cd", path)
+	return buildShellCmdForOS(path, runtime.GOOS, getShell())
+}
+
+// buildShellCmdForOS constructs a shell command for a specific OS and shell value.
+// It exists to keep buildShellCmd testable across platforms.
+func buildShellCmdForOS(path, goos, shell string) *exec.Cmd {
+	if goos == "windows" {
+		cmd := exec.Command("cmd", "/K")
+		cmd.Dir = path
+		return cmd
 	}
 
-	shell := getShell()
+	if shell == "" {
+		shell = "/bin/sh"
+	}
+
 	cmd := exec.Command(shell)
 	cmd.Dir = path
 	return cmd
