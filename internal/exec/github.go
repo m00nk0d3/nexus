@@ -74,26 +74,26 @@ func parseIssueList(raw string) ([]domain.Issue, error) {
 	return issues, nil
 }
 
-// GitHubClient wraps the gh CLI for GitHub pull request operations.
-type GitHubClient struct {
+// PRCommand wraps the gh CLI for GitHub pull request operations.
+type PRCommand struct {
 	repoPath string
 	runner   commandRunner
 }
 
-// NewGitHubClient creates a new GitHubClient using the real gh CLI.
-func NewGitHubClient(repoPath string) *GitHubClient {
-	return NewGitHubClientWithRunner(repoPath, runGhCommand)
+// NewPRCommand creates a new PRCommand using the real gh CLI.
+func NewPRCommand(repoPath string) *PRCommand {
+	return NewPRCommandWithRunner(repoPath, runGhCommand)
 }
 
-// NewGitHubClientWithRunner creates a GitHubClient with an injected runner for testing.
-func NewGitHubClientWithRunner(repoPath string, runner commandRunner) *GitHubClient {
-	return &GitHubClient{repoPath: repoPath, runner: runner}
+// NewPRCommandWithRunner creates a PRCommand with an injected runner for testing.
+func NewPRCommandWithRunner(repoPath string, runner commandRunner) *PRCommand {
+	return &PRCommand{repoPath: repoPath, runner: runner}
 }
 
 const prFields = "number,title,headRefName,author,state,labels,isDraft"
 
 // ListOpenPRs returns all open pull requests via `gh pr list`.
-func (c *GitHubClient) ListOpenPRs() ([]domain.PullRequest, error) {
+func (c *PRCommand) ListOpenPRs() ([]domain.PullRequest, error) {
 	output, err := c.runner(c.repoPath, "pr", "list", "--json", prFields, "--state", "open")
 	if err != nil {
 		return nil, fmt.Errorf("list open prs: %w", err)
@@ -108,7 +108,7 @@ func (c *GitHubClient) ListOpenPRs() ([]domain.PullRequest, error) {
 }
 
 // GetPR returns a single pull request by number via `gh pr view`.
-func (c *GitHubClient) GetPR(number int) (*domain.PullRequest, error) {
+func (c *PRCommand) GetPR(number int) (*domain.PullRequest, error) {
 	output, err := c.runner(c.repoPath, "pr", "view", fmt.Sprintf("%d", number), "--json", prFields)
 	if err != nil {
 		return nil, fmt.Errorf("get pr: %w", err)

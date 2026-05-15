@@ -134,19 +134,17 @@ func TestListOpenIssues_MapsDomainsCorrectly(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// GitHubClient — PullRequest tests
+// PRCommand — PullRequest tests
 // ---------------------------------------------------------------------------
 
-func TestNewGitHubClient(t *testing.T) {
-	client := NewGitHubClient("/repo")
+func TestNewPRCommand(t *testing.T) {
+	client := NewPRCommand("/repo")
 	assert.NotNil(t, client)
 	assert.Equal(t, "/repo", client.repoPath)
 	assert.NotNil(t, client.runner)
 }
 
 func TestListOpenPRs(t *testing.T) {
-	const prFields = "number,title,headRefName,author,state,labels,isDraft"
-
 	twoPRsJSON := `[
 		{"number":1,"title":"Add login","headRefName":"feat/login","author":{"login":"alice"},"state":"OPEN","labels":[{"name":"enhancement"}],"isDraft":false},
 		{"number":2,"title":"WIP: refactor","headRefName":"chore/refactor","author":{"login":"bob"},"state":"OPEN","labels":[{"name":"wip"},{"name":"refactor"}],"isDraft":true}
@@ -222,7 +220,7 @@ func TestListOpenPRs(t *testing.T) {
 				return tt.runnerOut, tt.runnerErr
 			}
 
-			client := NewGitHubClientWithRunner("/repo", runner)
+			client := NewPRCommandWithRunner("/repo", runner)
 			prs, err := client.ListOpenPRs()
 
 			if tt.wantErr {
@@ -247,8 +245,6 @@ func TestListOpenPRs(t *testing.T) {
 }
 
 func TestGetPR(t *testing.T) {
-	const prFields = "number,title,headRefName,author,state,labels,isDraft"
-
 	validPRJSON := `{"number":42,"title":"Implement feature","headRefName":"feat/feature","author":{"login":"frank"},"state":"MERGED","labels":[{"name":"feature"}],"isDraft":false}`
 
 	tests := []struct {
@@ -305,7 +301,7 @@ func TestGetPR(t *testing.T) {
 				return tt.runnerOut, tt.runnerErr
 			}
 
-			client := NewGitHubClientWithRunner("/repo", runner)
+			client := NewPRCommandWithRunner("/repo", runner)
 			pr, err := client.GetPR(tt.prNumber)
 
 			if tt.wantErr {
