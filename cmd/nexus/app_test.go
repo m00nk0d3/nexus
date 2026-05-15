@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"testing"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/m00nk0d3/nexus/internal/domain"
@@ -510,6 +511,103 @@ func TestModel_T_KeyCyclesTheme(t *testing.T) {
 			assert.Equal(t, tt.wantThemeIdx, model.themeIdx)
 		})
 	}
+}
+
+// TestModel_Init_ReturnsSyncCmd verifies that Init() returns a non-nil Cmd,
+// meaning it schedules the initial background GitHub sync in addition to
+// refreshing the worktree list.
+func TestModel_Init_ReturnsSyncCmd(t *testing.T) {
+	model := NewModel()
+	require.NotNil(t, model)
+
+	cmd := model.Init()
+
+	assert.NotNil(t, cmd, "Init() must return a Cmd to trigger GitHub sync")
+}
+
+// TestModel_GithubSyncedMsg_StoresPRsAndIssues verifies that receiving a
+// githubSyncedMsg via Update() correctly stores the synced data into the model.
+func TestModel_GithubSyncedMsg_StoresPRsAndIssues(t *testing.T) {
+	tests := []struct {
+		name            string
+		msg             githubSyncedMsg
+		wantPRLen       int
+		wantPRNumber    int
+		wantIssueLen    int
+		wantIssueNumber int
+		wantLastSynced  bool
+		wantSyncErr     string
+		wantSyncing     bool
+	}{
+		{
+			name: "stores prs and issues from sync message",
+			msg: githubSyncedMsg{
+				prs:      []domain.PullRequest{{Number: 42}},
+				issues:   []domain.Issue{{Number: 7}},
+				syncedAt: time.Now(),
+			},
+			wantPRLen:       1,
+			wantPRNumber:    42,
+			wantIssueLen:    1,
+			wantIssueNumber: 7,
+			wantLastSynced:  true,
+			wantSyncing:     false,
+		},
+		{
+			name:        "stores sync error without crashing",
+			msg:         githubSyncedMsg{err: errors.New("api down")},
+			wantSyncErr: "api down",
+			wantSyncing: false,
+		},
+		{
+			name:        "sets syncing=false after sync completes",
+			msg:         githubSyncedMsg{prs: nil, issues: nil},
+			wantSyncing: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			model := NewModel()
+			require.NotNil(t, model)
+
+			updated, _ := model.Update(tt.msg)
+			m, ok := updated.(*Model)
+			require.True(t, ok, "Update must return *Model")
+
+			if tt.wantPRLen > 0 {
+				require.Len(t, m.prs, tt.wantPRLen, "prs slice length mismatch")
+				assert.Equal(t, tt.wantPRNumber, m.prs[0].Number, "PR number mismatch")
+			}
+
+			if tt.wantIssueLen > 0 {
+				require.Len(t, m.issues, tt.wantIssueLen, "issues slice length mismatch")
+				assert.Equal(t, tt.wantIssueNumber, m.issues[0].Number, "issue number mismatch")
+			}
+
+			if tt.wantLastSynced {
+				assert.False(t, m.lastSynced.IsZero(), "lastSynced must be set to a non-zero time")
+			}
+
+			if tt.wantSyncErr != "" {
+				require.NotNil(t, m.syncErr, "syncErr must not be nil")
+				assert.Contains(t, m.syncErr.Error(), tt.wantSyncErr, "syncErr message mismatch")
+			}
+
+			assert.Equal(t, tt.wantSyncing, m.syncing, "syncing flag mismatch")
+		})
+	}
+}
+
+// TestModel_SyncTickMsg_TriggersSyncCmd verifies that receiving a syncTickMsg
+// via Update() returns a non-nil Cmd to schedule the next background GitHub sync.
+func TestModel_SyncTickMsg_TriggersSyncCmd(t *testing.T) {
+	model := NewModel()
+	require.NotNil(t, model)
+
+	_, cmd := model.Update(syncTickMsg{})
+
+	assert.NotNil(t, cmd, "syncTickMsg must trigger a sync Cmd")
 }
 
 func TestModel_WindowSizeMsg_StoresTerminalWidth(t *testing.T) {

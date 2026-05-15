@@ -1,8 +1,10 @@
 package main
 
 import (
+	"errors"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/m00nk0d3/nexus/internal/domain"
 	"github.com/stretchr/testify/assert"
@@ -240,6 +242,55 @@ func TestRenderFull_WorktreeStatusMapping(t *testing.T) {
 			assert.Contains(t, view, tt.expectedName)
 			assert.Contains(t, view, tt.worktree.Path)
 			assert.Contains(t, view, tt.expectedStatus)
+		})
+	}
+}
+
+func TestRenderFooterBar_SyncStatus(t *testing.T) {
+	tests := []struct {
+		name       string
+		syncing    bool
+		lastSynced time.Time
+		syncErr    error
+		wantIn     string
+	}{
+		{
+			name:    "shows syncing indicator while sync is in progress",
+			syncing: true,
+			wantIn:  "⟳ syncing",
+		},
+		{
+			name:       "shows synced time when last sync succeeded",
+			lastSynced: time.Now().Add(-3 * time.Minute),
+			wantIn:     "✓ synced 3m ago",
+		},
+		{
+			name:       "shows synced just now when under one minute",
+			lastSynced: time.Now().Add(-30 * time.Second),
+			wantIn:     "✓ synced just now",
+		},
+		{
+			name:    "shows error indicator on sync failure",
+			syncErr: errors.New("api rate limited"),
+			wantIn:  "✗ sync err",
+		},
+		{
+			name:   "shows nothing when never synced and not syncing",
+			wantIn: "NEXUS",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			model := NewModel()
+			require.NotNil(t, model)
+			model.syncing = tt.syncing
+			model.lastSynced = tt.lastSynced
+			model.syncErr = tt.syncErr
+
+			view := model.View()
+
+			assert.Contains(t, view, tt.wantIn)
 		})
 	}
 }

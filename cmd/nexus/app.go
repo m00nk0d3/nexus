@@ -1,10 +1,12 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"runtime"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/m00nk0d3/nexus/internal/data"
@@ -30,6 +32,17 @@ type worktreeSwitchedMsg struct {
 	err error // Error during switch, if any
 }
 
+// githubSyncedMsg carries the result of a background GitHub PR/issue sync.
+type githubSyncedMsg struct {
+	prs      []domain.PullRequest
+	issues   []domain.Issue
+	err      error
+	syncedAt time.Time
+}
+
+// syncTickMsg triggers the next periodic GitHub sync.
+type syncTickMsg struct{}
+
 // Model represents the root Bubbletea model for the Nexus TUI application.
 // It manages the list of git worktrees, user interactions, and active modals.
 type Model struct {
@@ -43,6 +56,11 @@ type Model struct {
 	activeNav   int               // Index of the active nav rail section (0=W,1=I,2=P,3=T)
 	width       int               // Terminal width in columns; 0 means use default
 	height      int               // Terminal height in rows; 0 means use default
+	prs         []domain.PullRequest // Latest synced pull requests
+	issues      []domain.Issue       // Latest synced issues
+	lastSynced  time.Time            // When the last successful GitHub sync completed
+	syncErr     error                // Error from the most recent GitHub sync attempt
+	syncing     bool                 // True while a background GitHub sync is in progress
 }
 
 // NewModel creates and returns a new Model instance with all required fields initialized.
@@ -70,9 +88,10 @@ func NewModel() *Model {
 	}
 }
 
-// Init initializes the model and triggers an initial worktree list load.
+// Init initializes the model and triggers an initial worktree list load and GitHub sync.
 func (m *Model) Init() tea.Cmd {
-	return m.refreshWorktreesCmd()
+	m.syncing = true
+	return tea.Batch(m.refreshWorktreesCmd(), m.syncGitHubCmd())
 }
 
 // Update handles incoming messages and returns an updated model and command.
@@ -155,6 +174,25 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
+	case githubSyncedMsg:
+		m.syncing = false
+		m.syncErr = msg.err
+		if msg.err == nil {
+			m.prs = msg.prs
+			m.issues = msg.issues
+			m.lastSynced = msg.syncedAt
+		}
+		// On error, m.prs and m.issues intentionally retain their previous values
+		// so the UI continues to show the last known good data.
+		// Schedule next periodic sync tick.
+		return m, tea.Tick(m.Config.GitHub.SyncInterval(), func(t time.Time) tea.Msg {
+			return syncTickMsg{}
+		})
+
+	case syncTickMsg:
+		m.syncing = true
+		return m, m.syncGitHubCmd()
+
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
@@ -169,7 +207,7 @@ func (m *Model) View() string {
 	if m.activeModal != nil {
 		baseView = m.activeModal.View()
 	} else {
-		baseView = renderFull(m.Worktrees, m.selectedIdx, m.RepoPath, m.themeIdx, m.activeNav, m.width, m.height)
+		baseView = renderFull(m.Worktrees, m.selectedIdx, m.RepoPath, m.themeIdx, m.activeNav, m.width, m.height, m.syncing, m.lastSynced, m.syncErr)
 	}
 
 	if m.Error == "" {
@@ -187,6 +225,18 @@ func (m *Model) fetchIssuesCmd() tea.Cmd {
 		cmd := internalexec.NewIssueCommand(repoPath)
 		issues, err := cmd.ListOpenIssues()
 		return issuesFetchedMsg{issues: issues, err: err}
+	}
+}
+
+// syncGitHubCmd returns a Cmd that fetches open PRs and issues from GitHub in the background.
+func (m *Model) syncGitHubCmd() tea.Cmd {
+	repoPath := m.RepoPath
+	return func() tea.Msg {
+		issueCmd := internalexec.NewIssueCommand(repoPath)
+		prCmd := internalexec.NewPRCommand(repoPath)
+		issues, issErr := issueCmd.ListOpenIssues()
+		prs, prErr := prCmd.ListOpenPRs()
+		return githubSyncedMsg{prs: prs, issues: issues, err: errors.Join(issErr, prErr), syncedAt: time.Now()}
 	}
 }
 
