@@ -2,6 +2,7 @@ package exec
 
 import (
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/m00nk0d3/nexus/internal/domain"
@@ -128,6 +129,202 @@ func TestListOpenIssues_MapsDomainsCorrectly(t *testing.T) {
 
 			require.NoError(t, err)
 			assert.Equal(t, tt.expected, issues)
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// GitHubClient — PullRequest tests
+// ---------------------------------------------------------------------------
+
+func TestNewGitHubClient(t *testing.T) {
+	client := NewGitHubClient("/repo")
+	assert.NotNil(t, client)
+	assert.Equal(t, "/repo", client.repoPath)
+	assert.NotNil(t, client.runner)
+}
+
+func TestListOpenPRs(t *testing.T) {
+	const prFields = "number,title,headRefName,author,state,labels,isDraft"
+
+	twoPRsJSON := `[
+		{"number":1,"title":"Add login","headRefName":"feat/login","author":{"login":"alice"},"state":"OPEN","labels":[{"name":"enhancement"}],"isDraft":false},
+		{"number":2,"title":"WIP: refactor","headRefName":"chore/refactor","author":{"login":"bob"},"state":"OPEN","labels":[{"name":"wip"},{"name":"refactor"}],"isDraft":true}
+	]`
+
+	tests := []struct {
+		name        string
+		runnerOut   string
+		runnerErr   error
+		wantErr     bool
+		errContains string
+		wantPRs     []domain.PullRequest
+		checkArgs   bool
+	}{
+		{
+			name:      "valid JSON with 2 PRs maps correctly",
+			runnerOut: twoPRsJSON,
+			wantPRs: []domain.PullRequest{
+				{Number: 1, Title: "Add login", Branch: "feat/login", Author: "alice", State: "OPEN", Labels: []string{"enhancement"}, IsDraft: false},
+				{Number: 2, Title: "WIP: refactor", Branch: "chore/refactor", Author: "bob", State: "OPEN", Labels: []string{"wip", "refactor"}, IsDraft: true},
+			},
+		},
+		{
+			name:      "empty list returns empty slice",
+			runnerOut: "[]",
+			wantPRs:   []domain.PullRequest{},
+		},
+		{
+			name:        "runner error wraps with list open prs",
+			runnerErr:   errors.New("gh: auth required"),
+			wantErr:     true,
+			errContains: "list open prs",
+		},
+		{
+			name:        "invalid JSON returns parse pr list error",
+			runnerOut:   "not json",
+			wantErr:     true,
+			errContains: "parse pr list",
+		},
+		{
+			name:      "PR with no labels has empty (non-nil) Labels slice",
+			runnerOut: `[{"number":3,"title":"Hotfix","headRefName":"fix/hotfix","author":{"login":"carol"},"state":"OPEN","labels":[],"isDraft":false}]`,
+			wantPRs: []domain.PullRequest{
+				{Number: 3, Title: "Hotfix", Branch: "fix/hotfix", Author: "carol", State: "OPEN", Labels: []string{}, IsDraft: false},
+			},
+		},
+		{
+			name:      "isDraft false maps correctly",
+			runnerOut: `[{"number":4,"title":"Stable PR","headRefName":"feat/stable","author":{"login":"dave"},"state":"OPEN","labels":[],"isDraft":false}]`,
+			wantPRs: []domain.PullRequest{
+				{Number: 4, Title: "Stable PR", Branch: "feat/stable", Author: "dave", State: "OPEN", Labels: []string{}, IsDraft: false},
+			},
+		},
+		{
+			name:      "isDraft true maps correctly",
+			runnerOut: `[{"number":5,"title":"Draft PR","headRefName":"feat/draft","author":{"login":"eve"},"state":"OPEN","labels":[],"isDraft":true}]`,
+			wantPRs: []domain.PullRequest{
+				{Number: 5, Title: "Draft PR", Branch: "feat/draft", Author: "eve", State: "OPEN", Labels: []string{}, IsDraft: true},
+			},
+		},
+		{
+			name:      "correct gh args passed",
+			runnerOut: "[]",
+			checkArgs: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var capturedArgs []string
+			runner := func(_ string, args ...string) (string, error) {
+				capturedArgs = args
+				return tt.runnerOut, tt.runnerErr
+			}
+
+			client := NewGitHubClientWithRunner("/repo", runner)
+			prs, err := client.ListOpenPRs()
+
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.errContains)
+				return
+			}
+
+			require.NoError(t, err)
+
+			if tt.checkArgs {
+				assert.Equal(t,
+					[]string{"pr", "list", "--json", prFields, "--state", "open"},
+					capturedArgs,
+				)
+				return
+			}
+
+			assert.Equal(t, tt.wantPRs, prs)
+		})
+	}
+}
+
+func TestGetPR(t *testing.T) {
+	const prFields = "number,title,headRefName,author,state,labels,isDraft"
+
+	validPRJSON := `{"number":42,"title":"Implement feature","headRefName":"feat/feature","author":{"login":"frank"},"state":"MERGED","labels":[{"name":"feature"}],"isDraft":false}`
+
+	tests := []struct {
+		name        string
+		prNumber    int
+		runnerOut   string
+		runnerErr   error
+		wantErr     bool
+		errContains string
+		wantPR      *domain.PullRequest
+		checkArgs   bool
+	}{
+		{
+			name:      "valid JSON single PR maps correctly",
+			prNumber:  42,
+			runnerOut: validPRJSON,
+			wantPR: &domain.PullRequest{
+				Number:  42,
+				Title:   "Implement feature",
+				Branch:  "feat/feature",
+				Author:  "frank",
+				State:   "MERGED",
+				Labels:  []string{"feature"},
+				IsDraft: false,
+			},
+		},
+		{
+			name:        "runner error wraps with get pr",
+			prNumber:    42,
+			runnerErr:   errors.New("gh: not found"),
+			wantErr:     true,
+			errContains: "get pr",
+		},
+		{
+			name:        "invalid JSON returns parse pr error",
+			prNumber:    42,
+			runnerOut:   "bad json",
+			wantErr:     true,
+			errContains: "parse pr",
+		},
+		{
+			name:      "correct gh args passed for pr 42",
+			prNumber:  42,
+			runnerOut: validPRJSON,
+			checkArgs: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var capturedArgs []string
+			runner := func(_ string, args ...string) (string, error) {
+				capturedArgs = args
+				return tt.runnerOut, tt.runnerErr
+			}
+
+			client := NewGitHubClientWithRunner("/repo", runner)
+			pr, err := client.GetPR(tt.prNumber)
+
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.errContains)
+				return
+			}
+
+			require.NoError(t, err)
+
+			if tt.checkArgs {
+				assert.Equal(t,
+					[]string{"pr", "view", fmt.Sprintf("%d", tt.prNumber), "--json", prFields},
+					capturedArgs,
+				)
+				return
+			}
+
+			assert.Equal(t, tt.wantPR, pr)
 		})
 	}
 }
