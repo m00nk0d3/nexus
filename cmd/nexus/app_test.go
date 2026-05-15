@@ -1,9 +1,11 @@
 package main
 
 import (
+	"errors"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/m00nk0d3/nexus/internal/domain"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -12,9 +14,9 @@ import (
 // with all required fields properly initialized
 func TestModelInitialization(t *testing.T) {
 	tests := []struct {
-		name             string
-		wantModelNotNil  bool
-		wantHasFields    bool
+		name            string
+		wantModelNotNil bool
+		wantHasFields   bool
 	}{
 		{
 			name:            "creates new model successfully",
@@ -26,11 +28,11 @@ func TestModelInitialization(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			model := NewModel()
-			
+
 			if tt.wantModelNotNil {
 				assert.NotNil(t, model, "Model should not be nil")
 			}
-			
+
 			if tt.wantHasFields {
 				// Verify model can be cast to tea.Model (has required interface methods)
 				var _ tea.Model = model
@@ -44,11 +46,11 @@ func TestModelInitialization(t *testing.T) {
 // and returns (tea.Model, tea.Cmd) as required by Bubbletea interface
 func TestModelUpdate(t *testing.T) {
 	tests := []struct {
-		name           string
-		msg            tea.Msg
-		wantModel      bool
-		wantCmdNotNil  bool
-		description    string
+		name          string
+		msg           tea.Msg
+		wantModel     bool
+		wantCmdNotNil bool
+		description   string
 	}{
 		{
 			name:          "update accepts tea.KeyMsg",
@@ -99,10 +101,10 @@ func TestModelUpdate(t *testing.T) {
 // representation of the model's current state
 func TestModelView(t *testing.T) {
 	tests := []struct {
-		name                string
-		wantViewNotEmpty    bool
-		wantViewIsString    bool
-		description         string
+		name             string
+		wantViewNotEmpty bool
+		wantViewIsString bool
+		description      string
 	}{
 		{
 			name:             "view returns string representation",
@@ -167,4 +169,293 @@ func TestModelIntegration(t *testing.T) {
 			assert.IsType(t, "", updatedView, "View should work after update: %s", tt.description)
 		})
 	}
+}
+
+// TestModel_Enter_TriggersSwitch verifies that pressing Enter on a selected worktree
+// returns a tea.Cmd to switch to that worktree
+func TestModel_Enter_TriggersSwitch(t *testing.T) {
+	tests := []struct {
+		name          string
+		worktrees     []interface{} // Will be converted to domain.Worktree
+		selectedIdx   int
+		description   string
+		wantCmdNotNil bool
+	}{
+		{
+			name: "enter on first worktree returns switch command",
+			worktrees: []interface{}{
+				map[string]interface{}{"Path": "/home/user/repos/wt1", "Branch": "main", "CommitSHA": "abc123", "IsClean": true, "IsLocked": false, "LinkedPR": nil},
+				map[string]interface{}{"Path": "/home/user/repos/wt2", "Branch": "feature", "CommitSHA": "def456", "IsClean": false, "IsLocked": false, "LinkedPR": nil},
+			},
+			selectedIdx:   0,
+			description:   "Should return a Cmd to switch to first worktree",
+			wantCmdNotNil: true,
+		},
+		{
+			name: "enter on second worktree returns switch command",
+			worktrees: []interface{}{
+				map[string]interface{}{"Path": "/home/user/repos/wt1", "Branch": "main", "CommitSHA": "abc123", "IsClean": true, "IsLocked": false, "LinkedPR": nil},
+				map[string]interface{}{"Path": "/home/user/repos/wt2", "Branch": "feature", "CommitSHA": "def456", "IsClean": false, "IsLocked": false, "LinkedPR": nil},
+			},
+			selectedIdx:   1,
+			description:   "Should return a Cmd to switch to second worktree",
+			wantCmdNotNil: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Setup: Create model with populated Worktrees list
+			model := NewModel()
+			require.NotNil(t, model, "Model creation should succeed")
+
+			// Convert test data to domain.Worktree
+			worktrees := make([]domain.Worktree, len(tt.worktrees))
+			for i, wtData := range tt.worktrees {
+				data := wtData.(map[string]interface{})
+				worktrees[i] = domain.Worktree{
+					Path:      data["Path"].(string),
+					Branch:    data["Branch"].(string),
+					CommitSHA: data["CommitSHA"].(string),
+					IsClean:   data["IsClean"].(bool),
+					IsLocked:  data["IsLocked"].(bool),
+				}
+			}
+			model.Worktrees = worktrees
+			model.selectedIdx = tt.selectedIdx
+
+			// Action: Call Update with tea.KeyEnter
+			updatedModel, cmd := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+
+			// Assert: Model is returned
+			assert.NotNil(t, updatedModel, "Update should return model: %s", tt.description)
+
+			// Assert: A Cmd is returned (for switching worktree)
+			if tt.wantCmdNotNil {
+				assert.NotNil(t, cmd, "Update should return a Cmd for switching worktree: %s", tt.description)
+			}
+		})
+	}
+}
+
+// TestModel_Enter_EmptyList_NoOp verifies that pressing Enter on an empty worktree list
+// does not trigger a switch command
+func TestModel_Enter_EmptyList_NoOp(t *testing.T) {
+	tests := []struct {
+		name        string
+		description string
+		wantCmdNil  bool
+	}{
+		{
+			name:        "enter on empty list returns nil command",
+			description: "Should return nil Cmd when no worktrees exist",
+			wantCmdNil:  true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Setup: Create model with empty Worktrees list
+			model := NewModel()
+			require.NotNil(t, model, "Model creation should succeed")
+			require.Empty(t, model.Worktrees, "Worktrees should be empty initially")
+
+			// Action: Call Update with tea.KeyEnter
+			updatedModel, cmd := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+
+			// Assert: Model is returned
+			assert.NotNil(t, updatedModel, "Update should return model: %s", tt.description)
+
+			// Assert: Cmd is nil (no-op)
+			if tt.wantCmdNil {
+				assert.Nil(t, cmd, "Update should return nil Cmd for empty list: %s", tt.description)
+			}
+		})
+	}
+}
+
+func TestModel_Enter_OutOfRangeSelectedIndex_NoOp(t *testing.T) {
+	model := NewModel()
+	require.NotNil(t, model)
+
+	model.Worktrees = []domain.Worktree{
+		{Path: "/home/user/repos/wt1", Branch: "main", CommitSHA: "abc123"},
+	}
+	model.selectedIdx = 10
+
+	updatedModel, cmd := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	assert.NotNil(t, updatedModel)
+	assert.Nil(t, cmd)
+}
+
+func TestBuildShellCmdForOS_Windows_UsesCmdKAndDir(t *testing.T) {
+	tests := []struct {
+		name     string
+		path     string
+		expected []string
+	}{
+		{
+			name:     "windows path with spaces",
+			path:     `C:\Users\dev\My Worktree`,
+			expected: []string{"cmd", "/K"},
+		},
+		{
+			name:     "windows different drive path",
+			path:     `D:\repo\wt-feature`,
+			expected: []string{"cmd", "/K"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cmd := buildShellCmdForOS(tt.path, "windows", "")
+			require.NotNil(t, cmd)
+			assert.Equal(t, tt.expected, cmd.Args)
+			assert.Equal(t, tt.path, cmd.Dir)
+		})
+	}
+}
+
+func TestBuildShellCmdForOS_Unix_UsesShellAndFallback(t *testing.T) {
+	tests := []struct {
+		name      string
+		shell     string
+		wantFirst string
+	}{
+		{
+			name:      "uses provided shell",
+			shell:     "/bin/zsh",
+			wantFirst: "/bin/zsh",
+		},
+		{
+			name:      "falls back to /bin/sh when shell empty",
+			shell:     "",
+			wantFirst: "/bin/sh",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			path := "/tmp/worktree"
+			cmd := buildShellCmdForOS(path, "linux", tt.shell)
+			require.NotNil(t, cmd)
+			require.NotEmpty(t, cmd.Args)
+			assert.Equal(t, tt.wantFirst, cmd.Args[0])
+			assert.Equal(t, path, cmd.Dir)
+		})
+	}
+}
+
+func TestGetShell_UsesEnvAndFallback(t *testing.T) {
+	tests := []struct {
+		name      string
+		shellEnv  string
+		wantShell string
+	}{
+		{
+			name:      "uses SHELL env value when set",
+			shellEnv:  "/bin/fish",
+			wantShell: "/bin/fish",
+		},
+		{
+			name:      "falls back to /bin/sh when SHELL env empty",
+			shellEnv:  "",
+			wantShell: "/bin/sh",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("SHELL", tt.shellEnv)
+			assert.Equal(t, tt.wantShell, getShell())
+		})
+	}
+}
+
+func TestModelUpdate_WorktreeSwitchedMsg_ErrorHandling(t *testing.T) {
+	tests := []struct {
+		name         string
+		msg          worktreeSwitchedMsg
+		wantError    string
+		wantCmdIsNil bool
+	}{
+		{
+			name:         "sets model error when switch fails",
+			msg:          worktreeSwitchedMsg{err: errors.New("switch failed")},
+			wantError:    "Failed to switch worktree: switch failed",
+			wantCmdIsNil: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			model := NewModel()
+			require.NotNil(t, model)
+
+			updated, cmd := model.Update(tt.msg)
+			updatedModel, ok := updated.(*Model)
+			require.True(t, ok)
+			assert.Equal(t, tt.wantError, updatedModel.Error)
+			if tt.wantCmdIsNil {
+				assert.Nil(t, cmd)
+			}
+		})
+	}
+}
+
+func TestModelUpdate_WorktreesRefreshedMsg_ClampsSelectedIndex(t *testing.T) {
+	tests := []struct {
+		name            string
+		initialSelected int
+		worktrees       []domain.Worktree
+		wantSelected    int
+	}{
+		{
+			name:            "clamps to last when selected index is too large",
+			initialSelected: 5,
+			worktrees: []domain.Worktree{
+				{Path: "/wt/a"},
+				{Path: "/wt/b"},
+			},
+			wantSelected: 1,
+		},
+		{
+			name:            "normalizes negative selected index to zero",
+			initialSelected: -3,
+			worktrees: []domain.Worktree{
+				{Path: "/wt/a"},
+			},
+			wantSelected: 0,
+		},
+		{
+			name:            "resets selected index to zero for empty list",
+			initialSelected: 2,
+			worktrees:       nil,
+			wantSelected:    0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			model := NewModel()
+			require.NotNil(t, model)
+			model.selectedIdx = tt.initialSelected
+
+			updated, cmd := model.Update(worktreesRefreshedMsg{worktrees: tt.worktrees, err: nil})
+			updatedModel, ok := updated.(*Model)
+			require.True(t, ok)
+			assert.Equal(t, tt.wantSelected, updatedModel.selectedIdx)
+			assert.Nil(t, cmd)
+		})
+	}
+}
+
+func TestModelView_ShowsErrorMessage(t *testing.T) {
+	model := NewModel()
+	require.NotNil(t, model)
+	model.Error = "Failed to switch worktree: boom"
+
+	view := model.View()
+	assert.Contains(t, view, "Error: Failed to switch worktree: boom")
+	assert.Contains(t, view, "Nexus TUI")
 }

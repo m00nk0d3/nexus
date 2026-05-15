@@ -1,29 +1,41 @@
 package main
 
 import (
+	"fmt"
+	"os"
+	"os/exec"
+	"runtime"
+
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/m00nk0d3/nexus/internal/domain"
-	"github.com/m00nk0d3/nexus/internal/exec"
+	internalexec "github.com/m00nk0d3/nexus/internal/exec"
 	"github.com/m00nk0d3/nexus/internal/tui/modal"
 )
 
 // issuesFetchedMsg carries the result of a background gh issue list call.
 type issuesFetchedMsg struct {
-	issues []domain.Issue
-	err    error
+	issues []domain.Issue // List of fetched issues, or nil on error
+	err    error          // Error during fetch, if any
 }
 
 // worktreeOpDoneMsg carries the result of an add/remove worktree operation.
 type worktreeOpDoneMsg struct {
-	err error
+	err error // Error during operation, if any
+}
+
+// worktreeSwitchedMsg carries the result of switching to a worktree.
+type worktreeSwitchedMsg struct {
+	err error // Error during switch, if any
 }
 
 // Model represents the root Bubbletea model for the Nexus TUI application.
+// It manages the list of git worktrees, user interactions, and active modals.
 type Model struct {
-	Worktrees   []domain.Worktree
-	RepoPath    string
-	selectedIdx int
-	activeModal tea.Model
+	Worktrees   []domain.Worktree // List of available git worktrees
+	RepoPath    string            // Path to the repository root
+	selectedIdx int               // Currently selected worktree index
+	activeModal tea.Model         // Currently open modal (if any)
+	Error       string            // Error message to display (if any)
 }
 
 // NewModel creates and returns a new Model instance with all required fields initialized.
@@ -60,13 +72,18 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		switch msg.Type {
+		case tea.KeyEnter:
+			if selected, ok := m.selectedWorktree(); ok {
+				return m, m.switchWorktreeCmd(selected.Path)
+			}
+			return m, nil
 		case tea.KeyCtrlC:
 			return m, tea.Quit
 		case tea.KeyCtrlN:
 			return m, m.fetchIssuesCmd()
 		case tea.KeyCtrlD:
-			if len(m.Worktrees) > 0 {
-				m.activeModal = modal.NewDeleteModal(m.Worktrees[m.selectedIdx])
+			if selected, ok := m.selectedWorktree(); ok {
+				m.activeModal = modal.NewDeleteModal(selected)
 			}
 		case tea.KeyUp:
 			if m.selectedIdx > 0 {
@@ -87,9 +104,19 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Refresh the worktree list after an add/remove operation.
 		return m, m.refreshWorktreesCmd()
 
+	case worktreeSwitchedMsg:
+		if msg.err != nil {
+			m.Error = fmt.Sprintf("Failed to switch worktree: %v", msg.err)
+			return m, nil
+		}
+		m.Error = ""
+		// Refresh worktrees after switching back
+		return m, m.refreshWorktreesCmd()
+
 	case worktreesRefreshedMsg:
 		if msg.err == nil {
 			m.Worktrees = msg.worktrees
+			m.clampSelectedIdx()
 		}
 
 	case tea.WindowSizeMsg:
@@ -101,22 +128,28 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // View returns a string representation of the model's current state.
 func (m *Model) View() string {
+	baseView := ""
 	if m.activeModal != nil {
-		return m.activeModal.View()
+		baseView = m.activeModal.View()
+	} else if len(m.Worktrees) > 0 {
+		baseView = renderWorktreeList(m.Worktrees)
+	} else {
+		baseView = "Nexus TUI"
 	}
 
-	if len(m.Worktrees) > 0 {
-		return renderWorktreeList(m.Worktrees)
+	if m.Error == "" {
+		return baseView
 	}
 
-	return "Nexus TUI"
+	return fmt.Sprintf("Error: %s\n\n%s", m.Error, baseView)
 }
 
-// fetchIssuesCmd returns a Cmd that fetches open GitHub issues in the background.
+// fetchIssuesCmd returns a Cmd that fetches open GitHub issues in the background,
+// allowing the user to create worktrees from issues.
 func (m *Model) fetchIssuesCmd() tea.Cmd {
 	repoPath := m.RepoPath
 	return func() tea.Msg {
-		cmd := exec.NewIssueCommand(repoPath)
+		cmd := internalexec.NewIssueCommand(repoPath)
 		issues, err := cmd.ListOpenIssues()
 		return issuesFetchedMsg{issues: issues, err: err}
 	}
@@ -126,7 +159,7 @@ func (m *Model) fetchIssuesCmd() tea.Cmd {
 func (m *Model) addWorktreeCmd(branch, path string) tea.Cmd {
 	repoPath := m.RepoPath
 	return func() tea.Msg {
-		cmd := exec.NewGitCommand(repoPath)
+		cmd := internalexec.NewGitCommand(repoPath)
 		err := cmd.AddWorktreeNewBranch(path, branch, "main")
 		return worktreeOpDoneMsg{err: err}
 	}
@@ -136,10 +169,54 @@ func (m *Model) addWorktreeCmd(branch, path string) tea.Cmd {
 func (m *Model) removeWorktreeCmd(path string) tea.Cmd {
 	repoPath := m.RepoPath
 	return func() tea.Msg {
-		cmd := exec.NewGitCommand(repoPath)
+		cmd := internalexec.NewGitCommand(repoPath)
 		err := cmd.RemoveWorktree(path, true)
 		return worktreeOpDoneMsg{err: err}
 	}
+}
+
+// switchWorktreeCmd returns a Cmd that launches a shell in the specified worktree directory,
+// allowing the user to work within the worktree before returning to the TUI.
+func (m *Model) switchWorktreeCmd(path string) tea.Cmd {
+	cmd := buildShellCmd(path)
+	return tea.ExecProcess(cmd, func(err error) tea.Msg {
+		return worktreeSwitchedMsg{err: err}
+	})
+}
+
+// buildShellCmd constructs a platform-appropriate shell command for the given directory.
+// On Windows, it uses cmd.exe with /K flag to keep the shell open.
+// On Unix-like systems, it uses the SHELL environment variable, defaulting to /bin/sh.
+func buildShellCmd(path string) *exec.Cmd {
+	return buildShellCmdForOS(path, runtime.GOOS, getShell())
+}
+
+// buildShellCmdForOS constructs a shell command for a specific OS and shell value.
+// It exists to keep buildShellCmd testable across platforms.
+func buildShellCmdForOS(path, goos, shell string) *exec.Cmd {
+	if goos == "windows" {
+		cmd := exec.Command("cmd", "/K")
+		cmd.Dir = path
+		return cmd
+	}
+
+	if shell == "" {
+		shell = "/bin/sh"
+	}
+
+	cmd := exec.Command(shell)
+	cmd.Dir = path
+	return cmd
+}
+
+// getShell returns the user's preferred shell, or /bin/sh as a fallback.
+// It reads the SHELL environment variable on Unix-like systems.
+func getShell() string {
+	shell := os.Getenv("SHELL")
+	if shell != "" {
+		return shell
+	}
+	return "/bin/sh"
 }
 
 // worktreesRefreshedMsg carries the result of refreshing the worktree list.
@@ -152,8 +229,32 @@ type worktreesRefreshedMsg struct {
 func (m *Model) refreshWorktreesCmd() tea.Cmd {
 	repoPath := m.RepoPath
 	return func() tea.Msg {
-		cmd := exec.NewGitCommand(repoPath)
+		cmd := internalexec.NewGitCommand(repoPath)
 		worktrees, err := cmd.ListWorktrees()
 		return worktreesRefreshedMsg{worktrees: worktrees, err: err}
+	}
+}
+
+func (m *Model) selectedWorktree() (domain.Worktree, bool) {
+	if len(m.Worktrees) == 0 || m.selectedIdx < 0 || m.selectedIdx >= len(m.Worktrees) {
+		return domain.Worktree{}, false
+	}
+
+	return m.Worktrees[m.selectedIdx], true
+}
+
+func (m *Model) clampSelectedIdx() {
+	if len(m.Worktrees) == 0 {
+		m.selectedIdx = 0
+		return
+	}
+
+	if m.selectedIdx < 0 {
+		m.selectedIdx = 0
+		return
+	}
+
+	if m.selectedIdx >= len(m.Worktrees) {
+		m.selectedIdx = len(m.Worktrees) - 1
 	}
 }
