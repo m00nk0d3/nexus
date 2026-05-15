@@ -20,6 +20,9 @@ const (
 	ctxPanelInner    = 50
 	// panelOverhead: 1 border-left + 1 pad-left + 1 pad-right + 1 border-right
 	panelOverhead = 4
+	// panelPaddingOverhead: lipgloss Width includes padding, so pass Width(inner + panelPaddingOverhead)
+	// to get a content area equal to the *Inner variable (Padding(0,1) = 1+1 = 2).
+	panelPaddingOverhead = 2
 	// headerOverhead: 1 pad-left + 1 pad-right (no border on header/status-bar)
 	headerOverhead = 2
 	minPathWidth   = 5
@@ -95,7 +98,7 @@ func renderNavRail(theme styles.Theme, panelHeight int) string {
 		}
 		b.WriteString(fmt.Sprintf("%s%s: %s\n", cursor, item.key, item.label))
 	}
-	st := theme.GetStyle("nav-rail").Width(navPanelInner)
+	st := theme.GetStyle("nav-rail").Width(navPanelInner + panelPaddingOverhead)
 	if panelHeight > 0 {
 		st = st.Height(panelHeight)
 	}
@@ -139,7 +142,7 @@ func renderWorktreePanel(worktrees []domain.Worktree, selectedIdx int, theme sty
 		content.WriteString("\n")
 	}
 
-	st := theme.GetStyle("worktree-list").Width(listInner)
+	st := theme.GetStyle("worktree-list").Width(listInner + panelPaddingOverhead)
 	if panelHeight > 0 {
 		st = st.Height(panelHeight)
 	}
@@ -157,7 +160,7 @@ func renderContextPanel(worktrees []domain.Worktree, selectedIdx int, theme styl
 			filepath.Base(wt.Path), wt.Branch, worktreeStatus(wt),
 		)
 	}
-	st := theme.GetStyle("context-panel").Width(ctxPanelInner)
+	st := theme.GetStyle("context-panel").Width(ctxPanelInner + panelPaddingOverhead)
 	if panelHeight > 0 {
 		st = st.Height(panelHeight)
 	}
