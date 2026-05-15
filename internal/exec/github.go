@@ -27,7 +27,7 @@ func NewIssueCommandWithRunner(repoPath string, runner commandRunner) *IssueComm
 
 // ListOpenIssues returns all open GitHub issues via `gh issue list`.
 func (c *IssueCommand) ListOpenIssues() ([]domain.Issue, error) {
-	output, err := c.runner(c.repoPath, "issue", "list", "--json", "number,title,labels", "--state", "open")
+	output, err := c.runner(c.repoPath, "issue", "list", "--json", "number,title,labels", "--state", "open", "--limit", "100")
 	if err != nil {
 		return nil, fmt.Errorf("list open issues: %w", err)
 	}
@@ -94,7 +94,7 @@ const prFields = "number,title,headRefName,author,state,labels,isDraft"
 
 // ListOpenPRs returns all open pull requests via `gh pr list`.
 func (c *PRCommand) ListOpenPRs() ([]domain.PullRequest, error) {
-	output, err := c.runner(c.repoPath, "pr", "list", "--json", prFields, "--state", "open")
+	output, err := c.runner(c.repoPath, "pr", "list", "--json", prFields, "--state", "open", "--limit", "100")
 	if err != nil {
 		return nil, fmt.Errorf("list open prs: %w", err)
 	}

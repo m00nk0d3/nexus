@@ -102,7 +102,7 @@ func TestListOpenIssues_PassesCorrectArgs(t *testing.T) {
 	_, err := cmd.ListOpenIssues()
 
 	require.NoError(t, err)
-	assert.Equal(t, []string{"issue", "list", "--json", "number,title,labels", "--state", "open"}, capturedArgs)
+	assert.Equal(t, []string{"issue", "list", "--json", "number,title,labels", "--state", "open", "--limit", "100"}, capturedArgs)
 }
 
 func TestListOpenIssues_MapsDomainsCorrectly(t *testing.T) {
@@ -233,7 +233,7 @@ func TestListOpenPRs(t *testing.T) {
 
 			if tt.checkArgs {
 				assert.Equal(t,
-					[]string{"pr", "list", "--json", prFields, "--state", "open"},
+					[]string{"pr", "list", "--json", prFields, "--state", "open", "--limit", "100"},
 					capturedArgs,
 				)
 				return
