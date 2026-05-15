@@ -27,18 +27,30 @@ func LinkWorktreesToPRs(db *DB, worktrees []domain.Worktree, prs []domain.PullRe
 			wt.LinkedPR = &matched
 		}
 		result[i] = wt
+	}
 
+	tx, err := db.Conn.Begin()
+	if err != nil {
+		return nil, fmt.Errorf("link worktrees to prs: begin tx: %w", err)
+	}
+
+	for _, wt := range result {
 		// Persist: NULL when no PR matched, PR number otherwise.
 		var linkedPR interface{}
 		if wt.LinkedPR != nil {
 			linkedPR = wt.LinkedPR.Number
 		}
-		if _, err := db.Conn.Exec(
+		if _, err := tx.Exec(
 			"UPDATE worktrees SET linked_pr=? WHERE path=?",
 			linkedPR, wt.Path,
 		); err != nil {
+			_ = tx.Rollback()
 			return nil, fmt.Errorf("link worktrees to prs: update worktree %s: %w", wt.Path, err)
 		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("link worktrees to prs: commit: %w", err)
 	}
 
 	return result, nil
