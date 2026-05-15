@@ -274,6 +274,20 @@ func TestModel_Enter_EmptyList_NoOp(t *testing.T) {
 	}
 }
 
+func TestModel_Enter_OutOfRangeSelectedIndex_NoOp(t *testing.T) {
+	model := NewModel()
+	require.NotNil(t, model)
+
+	model.Worktrees = []domain.Worktree{
+		{Path: "/home/user/repos/wt1", Branch: "main", CommitSHA: "abc123"},
+	}
+	model.selectedIdx = 10
+
+	updatedModel, cmd := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	assert.NotNil(t, updatedModel)
+	assert.Nil(t, cmd)
+}
+
 func TestBuildShellCmdForOS_Windows_UsesCmdKAndDir(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -387,4 +401,61 @@ func TestModelUpdate_WorktreeSwitchedMsg_ErrorHandling(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestModelUpdate_WorktreesRefreshedMsg_ClampsSelectedIndex(t *testing.T) {
+	tests := []struct {
+		name            string
+		initialSelected int
+		worktrees       []domain.Worktree
+		wantSelected    int
+	}{
+		{
+			name:            "clamps to last when selected index is too large",
+			initialSelected: 5,
+			worktrees: []domain.Worktree{
+				{Path: "/wt/a"},
+				{Path: "/wt/b"},
+			},
+			wantSelected: 1,
+		},
+		{
+			name:            "normalizes negative selected index to zero",
+			initialSelected: -3,
+			worktrees: []domain.Worktree{
+				{Path: "/wt/a"},
+			},
+			wantSelected: 0,
+		},
+		{
+			name:            "resets selected index to zero for empty list",
+			initialSelected: 2,
+			worktrees:       nil,
+			wantSelected:    0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			model := NewModel()
+			require.NotNil(t, model)
+			model.selectedIdx = tt.initialSelected
+
+			updated, cmd := model.Update(worktreesRefreshedMsg{worktrees: tt.worktrees, err: nil})
+			updatedModel, ok := updated.(*Model)
+			require.True(t, ok)
+			assert.Equal(t, tt.wantSelected, updatedModel.selectedIdx)
+			assert.Nil(t, cmd)
+		})
+	}
+}
+
+func TestModelView_ShowsErrorMessage(t *testing.T) {
+	model := NewModel()
+	require.NotNil(t, model)
+	model.Error = "Failed to switch worktree: boom"
+
+	view := model.View()
+	assert.Contains(t, view, "Error: Failed to switch worktree: boom")
+	assert.Contains(t, view, "Nexus TUI")
 }

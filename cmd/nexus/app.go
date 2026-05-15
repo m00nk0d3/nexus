@@ -73,8 +73,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		switch msg.Type {
 		case tea.KeyEnter:
-			if len(m.Worktrees) > 0 {
-				return m, m.switchWorktreeCmd(m.Worktrees[m.selectedIdx].Path)
+			if selected, ok := m.selectedWorktree(); ok {
+				return m, m.switchWorktreeCmd(selected.Path)
 			}
 			return m, nil
 		case tea.KeyCtrlC:
@@ -82,8 +82,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case tea.KeyCtrlN:
 			return m, m.fetchIssuesCmd()
 		case tea.KeyCtrlD:
-			if len(m.Worktrees) > 0 {
-				m.activeModal = modal.NewDeleteModal(m.Worktrees[m.selectedIdx])
+			if selected, ok := m.selectedWorktree(); ok {
+				m.activeModal = modal.NewDeleteModal(selected)
 			}
 		case tea.KeyUp:
 			if m.selectedIdx > 0 {
@@ -109,12 +109,14 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.Error = fmt.Sprintf("Failed to switch worktree: %v", msg.err)
 			return m, nil
 		}
+		m.Error = ""
 		// Refresh worktrees after switching back
 		return m, m.refreshWorktreesCmd()
 
 	case worktreesRefreshedMsg:
 		if msg.err == nil {
 			m.Worktrees = msg.worktrees
+			m.clampSelectedIdx()
 		}
 
 	case tea.WindowSizeMsg:
@@ -126,15 +128,20 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // View returns a string representation of the model's current state.
 func (m *Model) View() string {
+	baseView := ""
 	if m.activeModal != nil {
-		return m.activeModal.View()
+		baseView = m.activeModal.View()
+	} else if len(m.Worktrees) > 0 {
+		baseView = renderWorktreeList(m.Worktrees)
+	} else {
+		baseView = "Nexus TUI"
 	}
 
-	if len(m.Worktrees) > 0 {
-		return renderWorktreeList(m.Worktrees)
+	if m.Error == "" {
+		return baseView
 	}
 
-	return "Nexus TUI"
+	return fmt.Sprintf("Error: %s\n\n%s", m.Error, baseView)
 }
 
 // fetchIssuesCmd returns a Cmd that fetches open GitHub issues in the background,
@@ -225,5 +232,29 @@ func (m *Model) refreshWorktreesCmd() tea.Cmd {
 		cmd := internalexec.NewGitCommand(repoPath)
 		worktrees, err := cmd.ListWorktrees()
 		return worktreesRefreshedMsg{worktrees: worktrees, err: err}
+	}
+}
+
+func (m *Model) selectedWorktree() (domain.Worktree, bool) {
+	if len(m.Worktrees) == 0 || m.selectedIdx < 0 || m.selectedIdx >= len(m.Worktrees) {
+		return domain.Worktree{}, false
+	}
+
+	return m.Worktrees[m.selectedIdx], true
+}
+
+func (m *Model) clampSelectedIdx() {
+	if len(m.Worktrees) == 0 {
+		m.selectedIdx = 0
+		return
+	}
+
+	if m.selectedIdx < 0 {
+		m.selectedIdx = 0
+		return
+	}
+
+	if m.selectedIdx >= len(m.Worktrees) {
+		m.selectedIdx = len(m.Worktrees) - 1
 	}
 }
