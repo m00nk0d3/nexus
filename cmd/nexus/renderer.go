@@ -12,17 +12,19 @@ import (
 )
 
 const (
-	appVersion      = "1.0"
-	footerHints     = "[↑/↓] Navigate | [Enter] Select | [t] Theme | [g] Open in GH | [esc] Quit"
-	actionBarHints  = "[c-n] New  [c-d] Delete  [c-l] Lock | [f1] Help"
+	appVersion       = "1.0"
+	footerHints      = "[↑/↓] Navigate | [Enter] Select | [t] Theme | [g] Open in GH | [esc] Quit"
+	actionBarHints   = "[c-n] New  [c-d] Delete  [c-l] Lock | [f1] Help"
 	defaultTermWidth = 120
-	navPanelInner   = 18
-	ctxPanelInner   = 34
+	navPanelInner    = 18
+	ctxPanelInner    = 50
 	// panelOverhead: 1 border-left + 1 pad-left + 1 pad-right + 1 border-right
-	panelOverhead  = 4
+	panelOverhead = 4
 	// headerOverhead: 1 pad-left + 1 pad-right (no border on header/status-bar)
 	headerOverhead = 2
 	minPathWidth   = 5
+	// fixedChromeRows: 1 header + 1 footer + 1 action bar + 2 panel borders (top+bottom)
+	fixedChromeRows = 5
 )
 
 type navItem struct {
@@ -39,7 +41,8 @@ var navItems = []navItem{
 
 // renderFull builds the complete 3-pane TUI layout.
 // termWidth is the terminal column count; 0 falls back to defaultTermWidth.
-func renderFull(worktrees []domain.Worktree, selectedIdx int, repoPath string, themeIdx, termWidth int) string {
+// termHeight is the terminal row count; 0 disables explicit panel height.
+func renderFull(worktrees []domain.Worktree, selectedIdx int, repoPath string, themeIdx, termWidth, termHeight int) string {
 	if termWidth <= 0 {
 		termWidth = defaultTermWidth
 	}
@@ -54,10 +57,17 @@ func renderFull(worktrees []domain.Worktree, selectedIdx int, repoPath string, t
 	listInner := listOuter - panelOverhead
 	headerInner := termWidth - headerOverhead
 
+	// panelHeight is the inner content height for all three side panels.
+	// 0 means let lipgloss size naturally (used in tests / zero-height terminals).
+	panelHeight := 0
+	if termHeight > fixedChromeRows {
+		panelHeight = termHeight - fixedChromeRows
+	}
+
 	header := renderHeader(repoPath, theme, headerInner)
-	nav := renderNavRail(theme)
-	list := renderWorktreePanel(worktrees, selectedIdx, theme, listInner)
-	ctx := renderContextPanel(worktrees, selectedIdx, theme)
+	nav := renderNavRail(theme, panelHeight)
+	list := renderWorktreePanel(worktrees, selectedIdx, theme, listInner, panelHeight)
+	ctx := renderContextPanel(worktrees, selectedIdx, theme, panelHeight)
 	mainRow := lipgloss.JoinHorizontal(lipgloss.Top, nav, list, ctx)
 	footer := renderFooterBar(theme, time.Now().UTC().Format("2006-01-02"), termWidth)
 	actionBar := renderActionBar(theme, termWidth)
@@ -76,7 +86,7 @@ func renderHeader(repoPath string, theme styles.Theme, innerWidth int) string {
 	return theme.GetStyle("header").Width(innerWidth).Render(text)
 }
 
-func renderNavRail(theme styles.Theme) string {
+func renderNavRail(theme styles.Theme, panelHeight int) string {
 	var b strings.Builder
 	for i, item := range navItems {
 		cursor := "  "
@@ -85,10 +95,14 @@ func renderNavRail(theme styles.Theme) string {
 		}
 		b.WriteString(fmt.Sprintf("%s%s: %s\n", cursor, item.key, item.label))
 	}
-	return theme.GetStyle("nav-rail").Width(navPanelInner).Render(strings.TrimRight(b.String(), "\n"))
+	st := theme.GetStyle("nav-rail").Width(navPanelInner)
+	if panelHeight > 0 {
+		st = st.Height(panelHeight)
+	}
+	return st.Render(strings.TrimRight(b.String(), "\n"))
 }
 
-func renderWorktreePanel(worktrees []domain.Worktree, selectedIdx int, theme styles.Theme, listInner int) string {
+func renderWorktreePanel(worktrees []domain.Worktree, selectedIdx int, theme styles.Theme, listInner, panelHeight int) string {
 	headers := []string{"NAME", "PATH", "STATUS", "UPDATED", "GH:ID"}
 	var content strings.Builder
 
@@ -120,10 +134,14 @@ func renderWorktreePanel(worktrees []domain.Worktree, selectedIdx int, theme sty
 		content.WriteString("\n")
 	}
 
-	return theme.GetStyle("worktree-list").Width(listInner).Render(strings.TrimRight(content.String(), "\n"))
+	st := theme.GetStyle("worktree-list").Width(listInner)
+	if panelHeight > 0 {
+		st = st.Height(panelHeight)
+	}
+	return st.Render(strings.TrimRight(content.String(), "\n"))
 }
 
-func renderContextPanel(worktrees []domain.Worktree, selectedIdx int, theme styles.Theme) string {
+func renderContextPanel(worktrees []domain.Worktree, selectedIdx int, theme styles.Theme, panelHeight int) string {
 	var content string
 	if len(worktrees) == 0 || selectedIdx < 0 || selectedIdx >= len(worktrees) {
 		content = "No worktree selected.\nSelect a worktree to\nview context."
@@ -134,7 +152,11 @@ func renderContextPanel(worktrees []domain.Worktree, selectedIdx int, theme styl
 			filepath.Base(wt.Path), wt.Branch, worktreeStatus(wt),
 		)
 	}
-	return theme.GetStyle("context-panel").Width(ctxPanelInner).Render(content)
+	st := theme.GetStyle("context-panel").Width(ctxPanelInner)
+	if panelHeight > 0 {
+		st = st.Height(panelHeight)
+	}
+	return st.Render(content)
 }
 
 func renderFooterBar(theme styles.Theme, date string, termWidth int) string {

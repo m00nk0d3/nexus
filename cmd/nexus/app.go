@@ -39,6 +39,7 @@ type Model struct {
 	Error       string            // Error message to display (if any)
 	themeIdx    int               // Index into styles.Themes for the active theme
 	width       int               // Terminal width in columns; 0 means use default
+	height      int               // Terminal height in rows; 0 means use default
 }
 
 // NewModel creates and returns a new Model instance with all required fields initialized.
@@ -128,6 +129,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
+		m.height = msg.Height
 	}
 
 	return m, nil
@@ -139,7 +141,7 @@ func (m *Model) View() string {
 	if m.activeModal != nil {
 		baseView = m.activeModal.View()
 	} else {
-		baseView = renderFull(m.Worktrees, m.selectedIdx, m.RepoPath, m.themeIdx, m.width)
+		baseView = renderFull(m.Worktrees, m.selectedIdx, m.RepoPath, m.themeIdx, m.width, m.height)
 	}
 
 	if m.Error == "" {
