@@ -38,6 +38,7 @@ type Model struct {
 	activeModal tea.Model         // Currently open modal (if any)
 	Error       string            // Error message to display (if any)
 	themeIdx    int               // Index into styles.Themes for the active theme
+	activeNav   int               // Index of the active nav rail section (0=W,1=I,2=P,3=T)
 	width       int               // Terminal width in columns; 0 means use default
 	height      int               // Terminal height in rows; 0 means use default
 }
@@ -146,7 +147,7 @@ func (m *Model) View() string {
 	if m.activeModal != nil {
 		baseView = m.activeModal.View()
 	} else {
-		baseView = renderFull(m.Worktrees, m.selectedIdx, m.RepoPath, m.themeIdx, m.width, m.height)
+		baseView = renderFull(m.Worktrees, m.selectedIdx, m.RepoPath, m.themeIdx, m.activeNav, m.width, m.height)
 	}
 
 	if m.Error == "" {

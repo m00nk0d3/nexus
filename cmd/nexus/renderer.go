@@ -45,7 +45,7 @@ var navItems = []navItem{
 // renderFull builds the complete 3-pane TUI layout.
 // termWidth is the terminal column count; 0 falls back to defaultTermWidth.
 // termHeight is the terminal row count; 0 disables explicit panel height.
-func renderFull(worktrees []domain.Worktree, selectedIdx int, repoPath string, themeIdx, termWidth, termHeight int) string {
+func renderFull(worktrees []domain.Worktree, selectedIdx int, repoPath string, themeIdx, activeNav, termWidth, termHeight int) string {
 	if termWidth <= 0 {
 		termWidth = defaultTermWidth
 	}
@@ -68,7 +68,7 @@ func renderFull(worktrees []domain.Worktree, selectedIdx int, repoPath string, t
 	}
 
 	header := renderHeader(repoPath, theme, headerInner)
-	nav := renderNavRail(theme, panelHeight)
+	nav := renderNavRail(theme, panelHeight, activeNav)
 	list := renderWorktreePanel(worktrees, selectedIdx, theme, listInner, panelHeight)
 	ctx := renderContextPanel(worktrees, selectedIdx, theme, panelHeight)
 	mainRow := lipgloss.JoinHorizontal(lipgloss.Top, nav, list, ctx)
@@ -89,11 +89,11 @@ func renderHeader(repoPath string, theme styles.Theme, innerWidth int) string {
 	return theme.GetStyle("header").Width(innerWidth).Render(text)
 }
 
-func renderNavRail(theme styles.Theme, panelHeight int) string {
+func renderNavRail(theme styles.Theme, panelHeight, activeNav int) string {
 	var b strings.Builder
 	for i, item := range navItems {
 		cursor := "  "
-		if i == 0 {
+		if i == activeNav {
 			cursor = "> "
 		}
 		b.WriteString(fmt.Sprintf("%s%s: %s\n", cursor, item.key, item.label))
@@ -135,7 +135,7 @@ func renderWorktreePanel(worktrees []domain.Worktree, selectedIdx int, theme sty
 			nameCol := fmt.Sprintf("%-18s", name)
 			pathCol := fmt.Sprintf("%-*s", pathWidth, path)
 			statusCol := theme.StatusStyle(status).Width(8).Render(status)
-			updatedCol := fmt.Sprintf("%-10s", "—")
+			updatedCol := fmt.Sprintf("%-10s", "—") // TODO: populate from git log --format=%ai
 			ghIDCol := fmt.Sprintf("%-6s", ghID)
 			content.WriteString("  " + nameCol + " " + pathCol + " " + statusCol + " " + updatedCol + " " + ghIDCol)
 		}

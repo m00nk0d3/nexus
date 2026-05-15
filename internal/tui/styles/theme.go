@@ -129,7 +129,7 @@ func (t Theme) GetStyle(component string) lipgloss.Style {
 // StatusStyle returns a lipgloss.Style for a worktree status value.
 func (t Theme) StatusStyle(status string) lipgloss.Style {
 	switch strings.ToLower(status) {
-	case "checked", "checked out":
+	case "checked", "checked out": // reserved for future git worktree "checkedout" state
 		return lipgloss.NewStyle().Foreground(lipgloss.Color(t.accent))
 	case "idle", "clean":
 		return lipgloss.NewStyle().Foreground(lipgloss.Color(t.success))
