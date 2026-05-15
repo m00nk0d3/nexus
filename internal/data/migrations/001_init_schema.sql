@@ -17,7 +17,7 @@ CREATE TABLE IF NOT EXISTS github_prs (
     author      TEXT,
     state       TEXT,
     is_draft    BOOLEAN DEFAULT FALSE,
-    labels      TEXT,
+    labels      TEXT,   -- JSON array of label names, e.g. '["bug","feature"]'
     synced_at   DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -26,8 +26,8 @@ CREATE TABLE IF NOT EXISTS github_issues (
     number      INTEGER PRIMARY KEY,
     title       TEXT NOT NULL,
     state       TEXT,
-    labels      TEXT,
-    assignees   TEXT,
+    labels      TEXT,     -- JSON array of label names, e.g. '["bug","feature"]'
+    assignees   TEXT,     -- JSON array of login strings, e.g. '["alice","bob"]'
     synced_at   DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -45,7 +45,7 @@ CREATE TABLE IF NOT EXISTS agent_history (
 -- context_snapshots: worktree context captured before agent launch
 CREATE TABLE IF NOT EXISTS context_snapshots (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    worktree_id INTEGER REFERENCES worktrees(id),
+    worktree_id INTEGER NOT NULL REFERENCES worktrees(id),
     git_status  TEXT,
     file_list   TEXT,
     recent_log  TEXT,
