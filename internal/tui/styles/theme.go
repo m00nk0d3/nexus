@@ -127,18 +127,21 @@ func (t Theme) GetStyle(component string) lipgloss.Style {
 }
 
 // StatusStyle returns a lipgloss.Style for a worktree status value.
+// Background is always set to the surface color so padded cells don't bleed
+// terminal-default black into the panel background.
 func (t Theme) StatusStyle(status string) lipgloss.Style {
+	bg := lipgloss.Color(t.surface)
 	switch strings.ToLower(status) {
 	case "checked", "checked out": // reserved for future git worktree "checkedout" state
-		return lipgloss.NewStyle().Foreground(lipgloss.Color(t.accent))
+		return lipgloss.NewStyle().Background(bg).Foreground(lipgloss.Color(t.accent))
 	case "idle", "clean":
-		return lipgloss.NewStyle().Foreground(lipgloss.Color(t.success))
+		return lipgloss.NewStyle().Background(bg).Foreground(lipgloss.Color(t.success))
 	case "created", "dirty":
-		return lipgloss.NewStyle().Foreground(lipgloss.Color(t.warning))
+		return lipgloss.NewStyle().Background(bg).Foreground(lipgloss.Color(t.warning))
 	case "locked":
-		return lipgloss.NewStyle().Foreground(lipgloss.Color(t.danger))
+		return lipgloss.NewStyle().Background(bg).Foreground(lipgloss.Color(t.danger))
 	default:
-		return lipgloss.NewStyle().Foreground(lipgloss.Color(t.muted))
+		return lipgloss.NewStyle().Background(bg).Foreground(lipgloss.Color(t.muted))
 	}
 }
 
