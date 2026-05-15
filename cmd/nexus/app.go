@@ -7,6 +7,7 @@ import (
 	"runtime"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/m00nk0d3/nexus/internal/data"
 	"github.com/m00nk0d3/nexus/internal/domain"
 	internalexec "github.com/m00nk0d3/nexus/internal/exec"
 	"github.com/m00nk0d3/nexus/internal/tui/modal"
@@ -34,6 +35,7 @@ type worktreeSwitchedMsg struct {
 type Model struct {
 	Worktrees   []domain.Worktree // List of available git worktrees
 	RepoPath    string            // Path to the repository root
+	Config      *domain.Config    // Loaded application configuration
 	selectedIdx int               // Currently selected worktree index
 	activeModal tea.Model         // Currently open modal (if any)
 	Error       string            // Error message to display (if any)
@@ -45,7 +47,23 @@ type Model struct {
 
 // NewModel creates and returns a new Model instance with all required fields initialized.
 func NewModel() *Model {
-	return &Model{}
+	cfg, err := data.LoadConfig(data.DefaultConfigPath())
+	if err != nil {
+		cfg = domain.DefaultConfig()
+	}
+
+	themeIdx := 0
+	for i, name := range styles.Themes {
+		if name == cfg.Appearance.Theme {
+			themeIdx = i
+			break
+		}
+	}
+
+	return &Model{
+		Config:   cfg,
+		themeIdx: themeIdx,
+	}
 }
 
 // Init initializes the model and triggers an initial worktree list load.
