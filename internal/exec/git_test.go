@@ -152,66 +152,119 @@ func TestParseWorktreeListPorcelain(t *testing.T) {
 
 func TestGitCommand_ListWorktrees(t *testing.T) {
 	tests := []struct {
-		name      string
-		repoPath  string
-		output    string
-		runErr    error
-		want      []domain.Worktree
-		wantArgs  []string
-		expectErr string
+		name          string
+		repoPath      string
+		listOutput    string
+		listErr       error
+		statusOutputs map[string]string // worktree path -> git status --porcelain output
+		statusErr     error
+		want          []domain.Worktree
+		expectErr     string
 	}{
 		{
-			name:     "invokes git worktree list porcelain and parses output",
+			name:     "clean worktree is marked IsClean true",
 			repoPath: "/repo/main",
-			output: "worktree /repo/main\n" +
+			listOutput: "worktree /repo/main\n" +
 				"HEAD eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\n" +
 				"branch refs/heads/main\n",
+			statusOutputs: map[string]string{"/repo/main": ""},
 			want: []domain.Worktree{
 				{
 					Path:      "/repo/main",
 					CommitSHA: "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
 					Branch:    "main",
+					IsClean:   true,
 				},
 			},
-			wantArgs: []string{"worktree", "list", "--porcelain"},
 		},
 		{
-			name:      "returns runner error",
+			name:     "dirty worktree is marked IsClean false",
+			repoPath: "/repo/main",
+			listOutput: "worktree /repo/main\n" +
+				"HEAD eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\n" +
+				"branch refs/heads/main\n",
+			statusOutputs: map[string]string{"/repo/main": " M internal/exec/git.go\n"},
+			want: []domain.Worktree{
+				{
+					Path:      "/repo/main",
+					CommitSHA: "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+					Branch:    "main",
+					IsClean:   false,
+				},
+			},
+		},
+		{
+			name:     "multiple worktrees each get individual status checks",
+			repoPath: "/repo/main",
+			listOutput: "worktree /repo/main\n" +
+				"HEAD aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n" +
+				"branch refs/heads/main\n" +
+				"\n" +
+				"worktree /repo/feature\n" +
+				"HEAD bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\n" +
+				"branch refs/heads/feature\n",
+			statusOutputs: map[string]string{
+				"/repo/main":    "",
+				"/repo/feature": "?? untracked.go\n",
+			},
+			want: []domain.Worktree{
+				{
+					Path:      "/repo/main",
+					CommitSHA: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+					Branch:    "main",
+					IsClean:   true,
+				},
+				{
+					Path:      "/repo/feature",
+					CommitSHA: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+					Branch:    "feature",
+					IsClean:   false,
+				},
+			},
+		},
+		{
+			name:      "returns list runner error",
 			repoPath:  "/repo/main",
-			runErr:    errors.New("git failed"),
-			wantArgs:  []string{"worktree", "list", "--porcelain"},
+			listErr:   errors.New("git failed"),
 			expectErr: "git failed",
 		},
 		{
 			name: "returns parse error with context",
 			repoPath: "/repo/main",
-			output: "HEAD badbadbadbadbadbadbadbadbadbadbadbadbadb\n" +
+			listOutput: "HEAD badbadbadbadbadbadbadbadbadbadbadbadbadb\n" +
 				"worktree /repo/main\n",
-			wantArgs:  []string{"worktree", "list", "--porcelain"},
 			expectErr: "parse worktree porcelain: metadata before worktree",
+		},
+		{
+			name:     "returns status runner error",
+			repoPath: "/repo/main",
+			listOutput: "worktree /repo/main\n" +
+				"HEAD eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\n" +
+				"branch refs/heads/main\n",
+			statusErr: errors.New("permission denied"),
+			expectErr: "check worktree status: permission denied",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			var called bool
-			var calledRepoPath string
-			var calledArgs []string
-
 			runner := func(repoPath string, args ...string) (string, error) {
-				called = true
-				calledRepoPath = repoPath
-				calledArgs = append([]string{}, args...)
-				return tt.output, tt.runErr
+				if len(args) > 0 && args[0] == "worktree" {
+					return tt.listOutput, tt.listErr
+				}
+				// status --porcelain call
+				if tt.statusErr != nil {
+					return "", tt.statusErr
+				}
+				if tt.statusOutputs != nil {
+					return tt.statusOutputs[repoPath], nil
+				}
+				return "", nil
 			}
 
 			cmd := NewGitCommandWithRunner(tt.repoPath, runner)
 
 			actual, err := cmd.ListWorktrees()
-
-			require.True(t, called, "expected command runner to be invoked")
-			assert.Equal(t, tt.repoPath, calledRepoPath)
-			assert.Equal(t, tt.wantArgs, calledArgs)
 
 			if tt.expectErr != "" {
 				require.Error(t, err)

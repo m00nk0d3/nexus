@@ -41,6 +41,8 @@ func NewGitCommandWithRunner(repoPath string, runner commandRunner) *GitCommand 
 }
 
 // ListWorktrees returns worktrees from `git worktree list --porcelain`.
+// IsClean is determined by running `git status --porcelain` per worktree,
+// since the porcelain format does not reliably emit a "clean" marker.
 func (g *GitCommand) ListWorktrees() ([]domain.Worktree, error) {
 	output, err := g.run("list worktrees", "worktree", "list", "--porcelain")
 	if err != nil {
@@ -52,7 +54,23 @@ func (g *GitCommand) ListWorktrees() ([]domain.Worktree, error) {
 		return nil, fmt.Errorf("parse worktree porcelain: %w", err)
 	}
 
+	for i := range worktrees {
+		clean, err := g.isWorktreeClean(worktrees[i].Path)
+		if err != nil {
+			return nil, err
+		}
+		worktrees[i].IsClean = clean
+	}
+
 	return worktrees, nil
+}
+
+func (g *GitCommand) isWorktreeClean(path string) (bool, error) {
+	output, err := g.runner(path, "status", "--porcelain")
+	if err != nil {
+		return false, fmt.Errorf("check worktree status: %w", err)
+	}
+	return strings.TrimSpace(output) == "", nil
 }
 
 // AddWorktreeNewBranch creates a new worktree and branch: git worktree add -b <branch> <path> <baseBranch>.
