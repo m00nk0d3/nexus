@@ -23,6 +23,11 @@ func NewDB(path string) (*DB, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open sqlite: %w", err)
 	}
+	// Enable FK enforcement — SQLite disables it by default.
+	if _, err := sqlDB.Exec("PRAGMA foreign_keys = ON"); err != nil {
+		sqlDB.Close()
+		return nil, fmt.Errorf("enable foreign keys: %w", err)
+	}
 	db := &DB{Conn: sqlDB}
 	if err := db.migrate(); err != nil {
 		sqlDB.Close()
@@ -71,12 +76,31 @@ func (db *DB) migrate() error {
 		if err != nil {
 			return fmt.Errorf("read migration %s: %w", name, err)
 		}
-		if _, err := db.Conn.Exec(string(content)); err != nil {
-			return fmt.Errorf("exec migration %s: %w", name, err)
+		if err := db.applyMigration(name, string(content)); err != nil {
+			return err
 		}
-		if _, err := db.Conn.Exec("INSERT INTO schema_migrations (filename) VALUES (?)", name); err != nil {
-			return fmt.Errorf("record migration %s: %w", name, err)
-		}
+	}
+	return nil
+}
+
+// applyMigration runs a single migration file inside a transaction so that the
+// DDL and the schema_migrations record are committed atomically. A crash between
+// the two writes can no longer leave the database in a partially-migrated state.
+func (db *DB) applyMigration(name, content string) error {
+	tx, err := db.Conn.Begin()
+	if err != nil {
+		return fmt.Errorf("begin tx for migration %s: %w", name, err)
+	}
+	if _, err := tx.Exec(content); err != nil {
+		_ = tx.Rollback()
+		return fmt.Errorf("exec migration %s: %w", name, err)
+	}
+	if _, err := tx.Exec("INSERT INTO schema_migrations (filename) VALUES (?)", name); err != nil {
+		_ = tx.Rollback()
+		return fmt.Errorf("record migration %s: %w", name, err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit migration %s: %w", name, err)
 	}
 	return nil
 }
