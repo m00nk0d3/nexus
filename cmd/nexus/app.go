@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -181,6 +182,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.issues = msg.issues
 			m.lastSynced = msg.syncedAt
 		}
+		// On error, m.prs and m.issues intentionally retain their previous values
+		// so the UI continues to show the last known good data.
 		// Schedule next periodic sync tick.
 		return m, tea.Tick(m.Config.GitHub.SyncInterval(), func(t time.Time) tea.Msg {
 			return syncTickMsg{}
@@ -233,11 +236,7 @@ func (m *Model) syncGitHubCmd() tea.Cmd {
 		prCmd := internalexec.NewPRCommand(repoPath)
 		issues, issErr := issueCmd.ListOpenIssues()
 		prs, prErr := prCmd.ListOpenPRs()
-		err := issErr
-		if err == nil {
-			err = prErr
-		}
-		return githubSyncedMsg{prs: prs, issues: issues, err: err, syncedAt: time.Now()}
+		return githubSyncedMsg{prs: prs, issues: issues, err: errors.Join(issErr, prErr), syncedAt: time.Now()}
 	}
 }
 
