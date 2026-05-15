@@ -7,5 +7,5 @@ type Worktree struct {
 	CommitSHA  string
 	IsClean    bool
 	IsLocked   bool
-	LinkedPR   *int
+	LinkedPR   *PullRequest
 }
