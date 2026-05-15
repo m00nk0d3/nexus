@@ -45,9 +45,9 @@ func NewModel() *Model {
 	return &Model{}
 }
 
-// Init initializes the model and returns an initial command.
+// Init initializes the model and triggers an initial worktree list load.
 func (m *Model) Init() tea.Cmd {
-	return nil
+	return m.refreshWorktreesCmd()
 }
 
 // Update handles incoming messages and returns an updated model and command.
