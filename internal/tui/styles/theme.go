@@ -115,6 +115,10 @@ func (t Theme) GetStyle(component string) lipgloss.Style {
 			BorderStyle(lipgloss.RoundedBorder()).
 			BorderForeground(lipgloss.Color(t.accent)).
 			Padding(0, 1)
+	case "table-header":
+		return lipgloss.NewStyle().
+			Foreground(lipgloss.Color(t.muted)).
+			Bold(true)
 	default:
 		return lipgloss.NewStyle().
 			Background(lipgloss.Color(t.surface)).

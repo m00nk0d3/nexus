@@ -52,7 +52,7 @@ func TestNewTheme_AllThemesHaveNames(t *testing.T) {
 func TestTheme_GetStyle_ReturnsStyleForKnownComponents(t *testing.T) {
 	components := []string{
 		"header", "nav-rail", "worktree-list", "selected-row",
-		"status-bar", "modal-border", "error", "success", "context-panel",
+		"status-bar", "modal-border", "error", "success", "context-panel", "table-header",
 	}
 	theme := NewTheme("digital-noir")
 

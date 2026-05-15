@@ -12,9 +12,17 @@ import (
 )
 
 const (
-	appVersion     = "1.0"
-	footerHints    = "[+/↓] Navigate | [Enter] Select | [t] Theme | [g] Open in GH | [esc] Quit"
-	actionBarHints = "[c-n] New  [c-d] Delete  [c-l] Lock | [f1] Help"
+	appVersion      = "1.0"
+	footerHints     = "[↑/↓] Navigate | [Enter] Select | [t] Theme | [g] Open in GH | [esc] Quit"
+	actionBarHints  = "[c-n] New  [c-d] Delete  [c-l] Lock | [f1] Help"
+	defaultTermWidth = 120
+	navPanelInner   = 18
+	ctxPanelInner   = 34
+	// panelOverhead: 1 border-left + 1 pad-left + 1 pad-right + 1 border-right
+	panelOverhead  = 4
+	// headerOverhead: 1 pad-left + 1 pad-right (no border on header/status-bar)
+	headerOverhead = 2
+	minPathWidth   = 5
 )
 
 type navItem struct {
@@ -29,22 +37,35 @@ var navItems = []navItem{
 	{"T", "THEMES"},
 }
 
-// renderFull builds the complete 3-pane TUI layout using the theme at themeIdx.
-func renderFull(worktrees []domain.Worktree, selectedIdx int, repoPath string, themeIdx int) string {
+// renderFull builds the complete 3-pane TUI layout.
+// termWidth is the terminal column count; 0 falls back to defaultTermWidth.
+func renderFull(worktrees []domain.Worktree, selectedIdx int, repoPath string, themeIdx, termWidth int) string {
+	if termWidth <= 0 {
+		termWidth = defaultTermWidth
+	}
 	theme := styles.NewTheme(styles.Themes[themeIdx])
 
-	header := renderHeader(repoPath, theme)
+	navOuter := navPanelInner + panelOverhead
+	ctxOuter := ctxPanelInner + panelOverhead
+	listOuter := termWidth - navOuter - ctxOuter
+	if listOuter < minPathWidth+panelOverhead {
+		listOuter = minPathWidth + panelOverhead
+	}
+	listInner := listOuter - panelOverhead
+	headerInner := termWidth - headerOverhead
+
+	header := renderHeader(repoPath, theme, headerInner)
 	nav := renderNavRail(theme)
-	list := renderWorktreePanel(worktrees, selectedIdx, theme)
+	list := renderWorktreePanel(worktrees, selectedIdx, theme, listInner)
 	ctx := renderContextPanel(worktrees, selectedIdx, theme)
 	mainRow := lipgloss.JoinHorizontal(lipgloss.Top, nav, list, ctx)
-	footer := renderFooterBar(theme, time.Now().UTC().Format("2006-01-02"))
-	actionBar := renderActionBar(theme)
+	footer := renderFooterBar(theme, time.Now().UTC().Format("2006-01-02"), termWidth)
+	actionBar := renderActionBar(theme, termWidth)
 
 	return lipgloss.JoinVertical(lipgloss.Left, header, mainRow, footer, actionBar)
 }
 
-func renderHeader(repoPath string, theme styles.Theme) string {
+func renderHeader(repoPath string, theme styles.Theme, innerWidth int) string {
 	if repoPath == "" {
 		repoPath = "./"
 	}
@@ -52,7 +73,7 @@ func renderHeader(repoPath string, theme styles.Theme) string {
 		"NEXUS v%s: GIT WORKTREE ORCHESTRATOR | Repo: %s | Local Path: %s",
 		appVersion, filepath.Base(repoPath), repoPath,
 	)
-	return theme.GetStyle("header").Width(120).Render(text)
+	return theme.GetStyle("header").Width(innerWidth).Render(text)
 }
 
 func renderNavRail(theme styles.Theme) string {
@@ -64,14 +85,22 @@ func renderNavRail(theme styles.Theme) string {
 		}
 		b.WriteString(fmt.Sprintf("%s%s: %s\n", cursor, item.key, item.label))
 	}
-	return theme.GetStyle("nav-rail").Width(18).Render(strings.TrimRight(b.String(), "\n"))
+	return theme.GetStyle("nav-rail").Width(navPanelInner).Render(strings.TrimRight(b.String(), "\n"))
 }
 
-func renderWorktreePanel(worktrees []domain.Worktree, selectedIdx int, theme styles.Theme) string {
+func renderWorktreePanel(worktrees []domain.Worktree, selectedIdx int, theme styles.Theme, listInner int) string {
 	headers := []string{"NAME", "PATH", "STATUS", "UPDATED", "GH:ID"}
 	var content strings.Builder
 
-	headerStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#4A5568")).Bold(true)
+	// fixed columns: name(18) + status(8) + updated(10) + ghid(6) + 4 separators = 46
+	// cursor prefix is 2 chars ("> " or "  ")
+	const fixedRowWidth = 18 + 1 + 8 + 1 + 10 + 1 + 6 + 4 // =49 (incl separators, excl path+sep)
+	pathWidth := listInner - 2 - fixedRowWidth
+	if pathWidth < minPathWidth {
+		pathWidth = minPathWidth
+	}
+
+	headerStyle := theme.GetStyle("table-header")
 	content.WriteString(headerStyle.Render(strings.Join(headers, "   ")))
 	content.WriteString("\n")
 
@@ -82,7 +111,7 @@ func renderWorktreePanel(worktrees []domain.Worktree, selectedIdx int, theme sty
 		if wt.LinkedPR != nil {
 			ghID = fmt.Sprintf("%d", *wt.LinkedPR)
 		}
-		row := fmt.Sprintf("%-18s %-30s %-10s %-10s %-6s", name, wt.Path, status, "—", ghID)
+		row := fmt.Sprintf("%-18s %-*s %-8s %-10s %-6s", name, pathWidth, wt.Path, status, "—", ghID)
 		if i == selectedIdx {
 			content.WriteString(theme.GetStyle("selected-row").Render("> " + row))
 		} else {
@@ -91,7 +120,7 @@ func renderWorktreePanel(worktrees []domain.Worktree, selectedIdx int, theme sty
 		content.WriteString("\n")
 	}
 
-	return theme.GetStyle("worktree-list").Width(72).Render(strings.TrimRight(content.String(), "\n"))
+	return theme.GetStyle("worktree-list").Width(listInner).Render(strings.TrimRight(content.String(), "\n"))
 }
 
 func renderContextPanel(worktrees []domain.Worktree, selectedIdx int, theme styles.Theme) string {
@@ -105,17 +134,17 @@ func renderContextPanel(worktrees []domain.Worktree, selectedIdx int, theme styl
 			filepath.Base(wt.Path), wt.Branch, worktreeStatus(wt),
 		)
 	}
-	return theme.GetStyle("context-panel").Width(34).Render(content)
+	return theme.GetStyle("context-panel").Width(ctxPanelInner).Render(content)
 }
 
-func renderFooterBar(theme styles.Theme, date string) string {
-	return theme.GetStyle("status-bar").Width(120).Render(
+func renderFooterBar(theme styles.Theme, date string, termWidth int) string {
+	return theme.GetStyle("status-bar").Width(termWidth).Render(
 		fmt.Sprintf("%s  [%s]", footerHints, date),
 	)
 }
 
-func renderActionBar(theme styles.Theme) string {
-	return theme.GetStyle("status-bar").Width(120).Render(actionBarHints)
+func renderActionBar(theme styles.Theme, termWidth int) string {
+	return theme.GetStyle("status-bar").Width(termWidth).Render(actionBarHints)
 }
 
 // worktreeStatus maps domain fields to a display status string.
@@ -129,8 +158,3 @@ func worktreeStatus(wt domain.Worktree) string {
 	return "Dirty"
 }
 
-// renderWorktreeList is kept as a thin wrapper for callers that don't need the
-// full 3-pane layout (e.g. legacy paths). It uses the default theme.
-func renderWorktreeList(worktrees []domain.Worktree) string {
-	return renderFull(worktrees, -1, "", 0)
-}

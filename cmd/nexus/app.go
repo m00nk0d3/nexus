@@ -38,6 +38,7 @@ type Model struct {
 	activeModal tea.Model         // Currently open modal (if any)
 	Error       string            // Error message to display (if any)
 	themeIdx    int               // Index into styles.Themes for the active theme
+	width       int               // Terminal width in columns; 0 means use default
 }
 
 // NewModel creates and returns a new Model instance with all required fields initialized.
@@ -126,7 +127,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case tea.WindowSizeMsg:
-		// handled for future layout use
+		m.width = msg.Width
 	}
 
 	return m, nil
@@ -138,7 +139,7 @@ func (m *Model) View() string {
 	if m.activeModal != nil {
 		baseView = m.activeModal.View()
 	} else {
-		baseView = renderFull(m.Worktrees, m.selectedIdx, m.RepoPath, m.themeIdx)
+		baseView = renderFull(m.Worktrees, m.selectedIdx, m.RepoPath, m.themeIdx, m.width)
 	}
 
 	if m.Error == "" {

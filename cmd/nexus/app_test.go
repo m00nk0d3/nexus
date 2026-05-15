@@ -510,3 +510,35 @@ func TestModel_T_KeyCyclesTheme(t *testing.T) {
 		})
 	}
 }
+
+func TestModel_WindowSizeMsg_StoresTerminalWidth(t *testing.T) {
+	tests := []struct {
+		name      string
+		msgWidth  int
+		wantWidth int
+	}{
+		{
+			name:      "stores width from WindowSizeMsg",
+			msgWidth:  160,
+			wantWidth: 160,
+		},
+		{
+			name:      "stores minimum width from WindowSizeMsg",
+			msgWidth:  80,
+			wantWidth: 80,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			model := NewModel()
+			require.NotNil(t, model)
+
+			updated, _ := model.Update(tea.WindowSizeMsg{Width: tt.msgWidth, Height: 40})
+			m, ok := updated.(*Model)
+			require.True(t, ok)
+
+			assert.Equal(t, tt.wantWidth, m.width)
+		})
+	}
+}
