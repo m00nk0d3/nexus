@@ -37,6 +37,7 @@ func TestModelInitialization(t *testing.T) {
 				// Verify model can be cast to tea.Model (has required interface methods)
 				var _ tea.Model = model
 				assert.NotNil(t, model, "Model should implement tea.Model interface")
+				assert.NotNil(t, model.Config, "Config should be initialized (defaults at minimum)")
 			}
 		})
 	}

@@ -48,8 +48,11 @@ type Model struct {
 // NewModel creates and returns a new Model instance with all required fields initialized.
 func NewModel() *Model {
 	cfg, err := data.LoadConfig(data.DefaultConfigPath())
+
+	var configErr string
 	if err != nil {
 		cfg = domain.DefaultConfig()
+		configErr = fmt.Sprintf("config load failed: %v", err)
 	}
 
 	themeIdx := 0
@@ -63,6 +66,7 @@ func NewModel() *Model {
 	return &Model{
 		Config:   cfg,
 		themeIdx: themeIdx,
+		Error:    configErr,
 	}
 }
 

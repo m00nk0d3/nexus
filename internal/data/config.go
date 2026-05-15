@@ -10,15 +10,19 @@ import (
 )
 
 // DefaultConfigPath returns the default path to the Nexus config file.
+// Falls back to the current directory if the home directory cannot be determined.
 func DefaultConfigPath() string {
-	home, _ := os.UserHomeDir()
+	home, err := os.UserHomeDir()
+	if err != nil {
+		home = "."
+	}
 	return filepath.Join(home, ".nexus", "config.toml")
 }
 
 // LoadConfig reads and parses the TOML config at path.
 // If the file does not exist, it returns the default config.
 func LoadConfig(path string) (*domain.Config, error) {
-	data, err := os.ReadFile(path)
+	raw, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return domain.DefaultConfig(), nil
@@ -27,7 +31,7 @@ func LoadConfig(path string) (*domain.Config, error) {
 	}
 
 	var cfg domain.Config
-	if err := toml.Unmarshal(data, &cfg); err != nil {
+	if err := toml.Unmarshal(raw, &cfg); err != nil {
 		return nil, fmt.Errorf("parse config: %w", err)
 	}
 
@@ -40,12 +44,12 @@ func SaveConfig(cfg *domain.Config, path string) error {
 		return fmt.Errorf("create config dir: %w", err)
 	}
 
-	data, err := toml.Marshal(cfg)
+	b, err := toml.Marshal(cfg)
 	if err != nil {
 		return fmt.Errorf("marshal config: %w", err)
 	}
 
-	if err := os.WriteFile(path, data, 0o644); err != nil {
+	if err := os.WriteFile(path, b, 0o644); err != nil {
 		return fmt.Errorf("write config: %w", err)
 	}
 
