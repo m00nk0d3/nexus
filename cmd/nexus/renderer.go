@@ -45,7 +45,7 @@ var navItems = []navItem{
 // renderFull builds the complete 3-pane TUI layout.
 // termWidth is the terminal column count; 0 falls back to defaultTermWidth.
 // termHeight is the terminal row count; 0 disables explicit panel height.
-func renderFull(worktrees []domain.Worktree, selectedIdx int, repoPath string, themeIdx, activeNav, termWidth, termHeight int) string {
+func renderFull(worktrees []domain.Worktree, selectedIdx int, repoPath string, themeIdx, activeNav, termWidth, termHeight int, syncing bool, lastSynced time.Time, syncErr error) string {
 	if termWidth <= 0 {
 		termWidth = defaultTermWidth
 	}
@@ -72,7 +72,7 @@ func renderFull(worktrees []domain.Worktree, selectedIdx int, repoPath string, t
 	list := renderWorktreePanel(worktrees, selectedIdx, theme, listInner, panelHeight)
 	ctx := renderContextPanel(worktrees, selectedIdx, theme, panelHeight)
 	mainRow := lipgloss.JoinHorizontal(lipgloss.Top, nav, list, ctx)
-	footer := renderFooterBar(theme, time.Now().UTC().Format("2006-01-02"), termWidth)
+	footer := renderFooterBar(theme, time.Now().UTC().Format("2006-01-02"), termWidth, syncing, lastSynced, syncErr)
 	actionBar := renderActionBar(theme, termWidth)
 
 	return lipgloss.JoinVertical(lipgloss.Left, header, mainRow, footer, actionBar)
@@ -167,10 +167,30 @@ func renderContextPanel(worktrees []domain.Worktree, selectedIdx int, theme styl
 	return st.Render(content)
 }
 
-func renderFooterBar(theme styles.Theme, date string, termWidth int) string {
-	return theme.GetStyle("status-bar").Width(termWidth).Render(
-		fmt.Sprintf("%s  [%s]", footerHints, date),
-	)
+func renderFooterBar(theme styles.Theme, date string, termWidth int, syncing bool, lastSynced time.Time, syncErr error) string {
+	left := fmt.Sprintf("%s  [%s]", footerHints, date)
+
+	var syncStatus string
+	switch {
+	case syncErr != nil:
+		syncStatus = "✗ sync err"
+	case syncing:
+		syncStatus = "⟳ syncing"
+	case !lastSynced.IsZero():
+		mins := int(time.Since(lastSynced).Minutes())
+		if mins < 1 {
+			syncStatus = "✓ synced just now"
+		} else {
+			syncStatus = fmt.Sprintf("✓ synced %dm ago", mins)
+		}
+	}
+
+	content := left
+	if syncStatus != "" {
+		content = left + "  " + syncStatus
+	}
+
+	return theme.GetStyle("status-bar").Width(termWidth).Render(content)
 }
 
 func renderActionBar(theme styles.Theme, termWidth int) string {

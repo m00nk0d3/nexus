@@ -1,5 +1,7 @@
 package domain
 
+import "time"
+
 type Config struct {
 	GitHub     GitHubConfig     `toml:"github"`
 	Appearance AppearanceConfig `toml:"appearance"`
@@ -10,6 +12,15 @@ type Config struct {
 type GitHubConfig struct {
 	AutoSync            bool `toml:"auto_sync"`
 	SyncIntervalMinutes int  `toml:"sync_interval_minutes"`
+}
+
+// SyncInterval returns the configured sync interval as a time.Duration.
+// Defaults to 5 minutes when SyncIntervalMinutes is zero or negative.
+func (c GitHubConfig) SyncInterval() time.Duration {
+	if c.SyncIntervalMinutes <= 0 {
+		return 5 * time.Minute
+	}
+	return time.Duration(c.SyncIntervalMinutes) * time.Minute
 }
 
 type AppearanceConfig struct {
