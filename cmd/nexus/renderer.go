@@ -103,33 +103,38 @@ func renderNavRail(theme styles.Theme, panelHeight int) string {
 }
 
 func renderWorktreePanel(worktrees []domain.Worktree, selectedIdx int, theme styles.Theme, listInner, panelHeight int) string {
-	headers := []string{"NAME", "PATH", "STATUS", "UPDATED", "GH:ID"}
 	var content strings.Builder
 
-	// fixed columns: name(18) + status(8) + updated(10) + ghid(6) + 4 separators = 46
-	// cursor prefix is 2 chars ("> " or "  ")
-	const fixedRowWidth = 18 + 1 + 8 + 1 + 10 + 1 + 6 + 4 // =49 (incl separators, excl path+sep)
-	pathWidth := listInner - 2 - fixedRowWidth
+	// fixed columns: cursor(2) + name(18) + sep(1) + sep(1) + status(8) + sep(1) + updated(10) + sep(1) + ghid(6) = 48
+	const fixedRowWidth = 2 + 18 + 1 + 1 + 8 + 1 + 10 + 1 + 6 // =48 (excl path col)
+	pathWidth := listInner - fixedRowWidth
 	if pathWidth < minPathWidth {
 		pathWidth = minPathWidth
 	}
 
 	headerStyle := theme.GetStyle("table-header")
-	content.WriteString(headerStyle.Render(strings.Join(headers, "   ")))
+	headerRow := fmt.Sprintf("  %-18s %-*s %-8s %-10s %-6s", "NAME", pathWidth, "PATH", "STATUS", "UPDATED", "GH:ID")
+	content.WriteString(headerStyle.Render(headerRow))
 	content.WriteString("\n")
 
 	for i, wt := range worktrees {
-		name := filepath.Base(wt.Path)
+		name := truncateStr(filepath.Base(wt.Path), 18)
+		path := truncateStr(wt.Path, pathWidth)
 		status := worktreeStatus(wt)
 		ghID := ""
 		if wt.LinkedPR != nil {
 			ghID = fmt.Sprintf("%d", *wt.LinkedPR)
 		}
-		row := fmt.Sprintf("%-18s %-*s %-8s %-10s %-6s", name, pathWidth, wt.Path, status, "—", ghID)
 		if i == selectedIdx {
-			content.WriteString(theme.GetStyle("selected-row").Render("> " + row))
+			row := fmt.Sprintf("%-18s %-*s %-8s %-10s %-6s", name, pathWidth, path, status, "—", ghID)
+			content.WriteString(theme.GetStyle("selected-row").Width(listInner).Render("> " + row))
 		} else {
-			content.WriteString("  " + row)
+			nameCol := fmt.Sprintf("%-18s", name)
+			pathCol := fmt.Sprintf("%-*s", pathWidth, path)
+			statusCol := theme.StatusStyle(status).Width(8).Render(status)
+			updatedCol := fmt.Sprintf("%-10s", "—")
+			ghIDCol := fmt.Sprintf("%-6s", ghID)
+			content.WriteString("  " + nameCol + " " + pathCol + " " + statusCol + " " + updatedCol + " " + ghIDCol)
 		}
 		content.WriteString("\n")
 	}
@@ -167,6 +172,18 @@ func renderFooterBar(theme styles.Theme, date string, termWidth int) string {
 
 func renderActionBar(theme styles.Theme, termWidth int) string {
 	return theme.GetStyle("status-bar").Width(termWidth).Render(actionBarHints)
+}
+
+// truncateStr clips s to at most n runes, adding "…" if truncated.
+func truncateStr(s string, n int) string {
+	runes := []rune(s)
+	if len(runes) <= n {
+		return s
+	}
+	if n <= 1 {
+		return string(runes[:n])
+	}
+	return string(runes[:n-1]) + "…"
 }
 
 // worktreeStatus maps domain fields to a display status string.

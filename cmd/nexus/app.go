@@ -125,6 +125,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err == nil {
 			m.Worktrees = msg.worktrees
 			m.clampSelectedIdx()
+			// Always use the main worktree (first entry) as the canonical repo path
+			// so the header shows the repo name rather than the current worktree dir.
+			if len(msg.worktrees) > 0 {
+				m.RepoPath = msg.worktrees[0].Path
+			}
 		}
 
 	case tea.WindowSizeMsg:

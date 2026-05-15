@@ -232,6 +232,8 @@ func TestRenderFull_WorktreeStatusMapping(t *testing.T) {
 			model := NewModel()
 			require.NotNil(t, model)
 			model.Worktrees = []domain.Worktree{tt.worktree}
+			// Wide terminal so path fits without truncation.
+			model.width = 300
 
 			view := model.View()
 
