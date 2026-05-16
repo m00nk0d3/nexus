@@ -43,6 +43,9 @@ type githubSyncedMsg struct {
 // syncTickMsg triggers the next periodic GitHub sync.
 type syncTickMsg struct{}
 
+// browserOpenErrMsg carries an error from opening an issue or PR in the browser.
+type browserOpenErrMsg struct{ err error }
+
 // activeView represents the currently active main panel view.
 type activeView int
 
@@ -216,6 +219,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
+	case browserOpenErrMsg:
+		if msg.err != nil {
+			m.Error = fmt.Sprintf("Failed to open in browser: %v", msg.err)
+		}
+
 	case githubSyncedMsg:
 		m.syncing = false
 		m.syncErr = msg.err
@@ -223,6 +231,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.prs = msg.prs
 			m.issues = msg.issues
 			m.lastSynced = msg.syncedAt
+			// Clamp per-view selection indices after a sync in case the list shrank.
+			m.clampIssueIdx()
+			m.clampPRIdx()
 		}
 		// On error, m.prs and m.issues intentionally retain their previous values
 		// so the UI continues to show the last known good data.
@@ -264,19 +275,19 @@ func (m *Model) View() string {
 func (m *Model) openInBrowserCmd() tea.Cmd {
 	switch m.view {
 	case viewIssues:
-		if len(m.issues) == 0 {
+		if len(m.issues) == 0 || m.selectedIssueIdx >= len(m.issues) {
 			return nil
 		}
 		num := m.issues[m.selectedIssueIdx].Number
 		cmd := exec.Command("gh", "issue", "view", fmt.Sprintf("%d", num), "--web")
-		return tea.ExecProcess(cmd, func(err error) tea.Msg { return nil })
+		return tea.ExecProcess(cmd, func(err error) tea.Msg { return browserOpenErrMsg{err: err} })
 	case viewPRs:
-		if len(m.prs) == 0 {
+		if len(m.prs) == 0 || m.selectedPRIdx >= len(m.prs) {
 			return nil
 		}
 		num := m.prs[m.selectedPRIdx].Number
 		cmd := exec.Command("gh", "pr", "view", fmt.Sprintf("%d", num), "--web")
-		return tea.ExecProcess(cmd, func(err error) tea.Msg { return nil })
+		return tea.ExecProcess(cmd, func(err error) tea.Msg { return browserOpenErrMsg{err: err} })
 	default:
 		return nil
 	}
@@ -406,5 +417,25 @@ func (m *Model) clampSelectedIdx() {
 
 	if m.selectedIdx >= len(m.Worktrees) {
 		m.selectedIdx = len(m.Worktrees) - 1
+	}
+}
+
+func (m *Model) clampIssueIdx() {
+	if len(m.issues) == 0 {
+		m.selectedIssueIdx = 0
+		return
+	}
+	if m.selectedIssueIdx >= len(m.issues) {
+		m.selectedIssueIdx = len(m.issues) - 1
+	}
+}
+
+func (m *Model) clampPRIdx() {
+	if len(m.prs) == 0 {
+		m.selectedPRIdx = 0
+		return
+	}
+	if m.selectedPRIdx >= len(m.prs) {
+		m.selectedPRIdx = len(m.prs) - 1
 	}
 }

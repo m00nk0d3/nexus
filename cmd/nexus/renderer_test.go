@@ -297,7 +297,7 @@ func TestRenderFooterBar_SyncStatus(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Phase 2: Issues & PRs View — RED tests (features not yet implemented)
+// Phase 2: Issues & PRs View tests
 // ---------------------------------------------------------------------------
 
 // TestRenderIssueList_ContainsHeaders verifies that renderIssueList renders
@@ -670,5 +670,5 @@ func TestRenderFull_WorktreesViewStillWorks(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// End Phase 2 RED tests (renderer_test.go)
+// End Phase 2 tests (renderer_test.go)
 // ---------------------------------------------------------------------------

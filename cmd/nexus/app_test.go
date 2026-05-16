@@ -611,7 +611,7 @@ func TestModel_SyncTickMsg_TriggersSyncCmd(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Phase 2: Issues & PRs View — RED tests (features not yet implemented)
+// Phase 2: Issues & PRs View tests
 // ---------------------------------------------------------------------------
 
 // TestModel_ViewSwitching verifies that pressing W/I/P (upper- and lower-case)
@@ -863,8 +863,99 @@ func TestModel_G_Key_OpensInBrowser(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// End Phase 2 RED tests (app_test.go)
+// End Phase 2 tests (app_test.go)
 // ---------------------------------------------------------------------------
+
+// TestModel_GithubSync_ClampsIssueAndPRIdx verifies that after a successful sync
+// that returns fewer items, selectedIssueIdx and selectedPRIdx are clamped to
+// the new list bounds so openInBrowserCmd never panics.
+func TestModel_GithubSync_ClampsIssueAndPRIdx(t *testing.T) {
+	tests := []struct {
+		name             string
+		initialIssueIdx  int
+		initialPRIdx     int
+		syncIssues       []domain.Issue
+		syncPRs          []domain.PullRequest
+		wantIssueIdx     int
+		wantPRIdx        int
+	}{
+		{
+			name:            "issue idx clamped when sync shrinks list",
+			initialIssueIdx: 4,
+			initialPRIdx:    0,
+			syncIssues:      []domain.Issue{{Number: 1, Title: "Only Issue"}},
+			syncPRs:         []domain.PullRequest{{Number: 10, Title: "PR", Branch: "main", Author: "dev", State: "OPEN"}},
+			wantIssueIdx:    0,
+			wantPRIdx:       0,
+		},
+		{
+			name:            "pr idx clamped when sync shrinks list",
+			initialIssueIdx: 0,
+			initialPRIdx:    5,
+			syncIssues:      []domain.Issue{{Number: 1, Title: "Issue"}},
+			syncPRs:         []domain.PullRequest{{Number: 10, Title: "PR", Branch: "main", Author: "dev", State: "OPEN"}},
+			wantIssueIdx:    0,
+			wantPRIdx:       0,
+		},
+		{
+			name:            "idx within bounds is preserved after sync",
+			initialIssueIdx: 0,
+			initialPRIdx:    0,
+			syncIssues:      []domain.Issue{{Number: 1, Title: "A"}, {Number: 2, Title: "B"}},
+			syncPRs:         []domain.PullRequest{{Number: 10, Title: "PR", Branch: "main", Author: "dev", State: "OPEN"}},
+			wantIssueIdx:    0,
+			wantPRIdx:       0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			model := NewModel()
+			require.NotNil(t, model)
+			model.selectedIssueIdx = tt.initialIssueIdx
+			model.selectedPRIdx = tt.initialPRIdx
+
+			msg := githubSyncedMsg{
+				issues:   tt.syncIssues,
+				prs:      tt.syncPRs,
+				syncedAt: time.Now(),
+			}
+			updated, _ := model.Update(msg)
+			m, ok := updated.(*Model)
+			require.True(t, ok)
+
+			assert.Equal(t, tt.wantIssueIdx, m.selectedIssueIdx, "issue idx must be clamped")
+			assert.Equal(t, tt.wantPRIdx, m.selectedPRIdx, "pr idx must be clamped")
+		})
+	}
+}
+
+// TestModel_BrowserOpenErrMsg_SetsError verifies that a browserOpenErrMsg with
+// a non-nil error sets m.Error so the user sees feedback.
+func TestModel_BrowserOpenErrMsg_SetsError(t *testing.T) {
+	model := NewModel()
+	require.NotNil(t, model)
+
+	updated, _ := model.Update(browserOpenErrMsg{err: errors.New("gh: not found")})
+	m, ok := updated.(*Model)
+	require.True(t, ok)
+
+	assert.Contains(t, m.Error, "Failed to open in browser")
+	assert.Contains(t, m.Error, "gh: not found")
+}
+
+// TestModel_BrowserOpenErrMsg_NilErrorNoChange verifies that a nil-error
+// browserOpenErrMsg does not set m.Error.
+func TestModel_BrowserOpenErrMsg_NilErrorNoChange(t *testing.T) {
+	model := NewModel()
+	require.NotNil(t, model)
+
+	updated, _ := model.Update(browserOpenErrMsg{err: nil})
+	m, ok := updated.(*Model)
+	require.True(t, ok)
+
+	assert.Empty(t, m.Error)
+}
 
 func TestModel_WindowSizeMsg_StoresTerminalWidth(t *testing.T) {
 	tests := []struct {

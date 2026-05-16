@@ -68,7 +68,7 @@ func renderFull(worktrees []domain.Worktree, selectedIdx int, repoPath string, t
 	}
 
 	header := renderHeader(repoPath, theme, headerInner)
-	nav := renderNavRail(theme, panelHeight, int(view))
+	nav := renderNavRail(theme, panelHeight, view)
 
 	var list string
 	switch view {
@@ -99,11 +99,11 @@ func renderHeader(repoPath string, theme styles.Theme, innerWidth int) string {
 	return theme.GetStyle("header").Width(innerWidth).Render(text)
 }
 
-func renderNavRail(theme styles.Theme, panelHeight, activeNav int) string {
+func renderNavRail(theme styles.Theme, panelHeight int, view activeView) string {
 	var b strings.Builder
 	for i, item := range navItems {
 		cursor := "  "
-		if i == activeNav {
+		if activeView(i) == view {
 			cursor = "> "
 		}
 		b.WriteString(fmt.Sprintf("%s%s: %s\n", cursor, item.key, item.label))
@@ -216,6 +216,7 @@ func renderIssueList(issues []domain.Issue, selectedIdx int, theme styles.Theme,
 	for i, issue := range issues {
 		labels := strings.Join(issue.Labels, " ")
 		title := truncateStr(issue.Title, titleWidth)
+		// "Open" is hardcoded because gh issue list only returns open issues by default.
 		if i == selectedIdx {
 			row := fmt.Sprintf("%-6d %-*s %-8s %s", issue.Number, titleWidth, title, "Open", labels)
 			content.WriteString(theme.GetStyle("selected-row").Width(listInner).Render("> " + row))
