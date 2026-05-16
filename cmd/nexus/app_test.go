@@ -720,6 +720,7 @@ func TestModel_IssueNavigation(t *testing.T) {
 			require.NotNil(t, model)
 			model.issues = issues
 			model.view = viewIssues
+			model.focused = panelList
 			model.selectedIssueIdx = tt.initialIssueIdx
 
 			updated, _ := model.Update(tea.KeyMsg{Type: tt.keyType})
@@ -784,6 +785,7 @@ func TestModel_PRNavigation(t *testing.T) {
 			require.NotNil(t, model)
 			model.prs = prs
 			model.view = viewPRs
+			model.focused = panelList
 			model.selectedPRIdx = tt.initialPRIdx
 
 			updated, _ := model.Update(tea.KeyMsg{Type: tt.keyType})
@@ -961,25 +963,25 @@ func TestModel_BrowserOpenErrMsg_NilErrorNoChange(t *testing.T) {
 // Phase 4: Panel focus & j/k navigation tests
 // ---------------------------------------------------------------------------
 
-// TestModel_DefaultFocus_IsListPanel verifies that a new model starts with
-// the list panel focused (panelList is the zero value).
-func TestModel_DefaultFocus_IsListPanel(t *testing.T) {
+// TestModel_DefaultFocus_IsNavPanel verifies that a new model starts with
+// the nav panel focused (panelNav is the zero value).
+func TestModel_DefaultFocus_IsNavPanel(t *testing.T) {
 	model := NewModel()
 	require.NotNil(t, model)
-	assert.Equal(t, panelList, model.focused)
+	assert.Equal(t, panelNav, model.focused)
 }
 
 // TestModel_Tab_CyclesFocusThroughPanels verifies that Tab cycles focus
-// through list → nav → ctx → list.
+// left to right: nav → list → ctx → nav.
 func TestModel_Tab_CyclesFocusThroughPanels(t *testing.T) {
 	tests := []struct {
 		name         string
 		initialFocus focusedPanel
 		wantFocus    focusedPanel
 	}{
-		{name: "Tab from list focuses nav", initialFocus: panelList, wantFocus: panelNav},
-		{name: "Tab from nav focuses ctx", initialFocus: panelNav, wantFocus: panelCtx},
-		{name: "Tab from ctx wraps to list", initialFocus: panelCtx, wantFocus: panelList},
+		{name: "Tab from nav focuses list", initialFocus: panelNav, wantFocus: panelList},
+		{name: "Tab from list focuses ctx", initialFocus: panelList, wantFocus: panelCtx},
+		{name: "Tab from ctx wraps to nav", initialFocus: panelCtx, wantFocus: panelNav},
 	}
 
 	for _, tt := range tests {

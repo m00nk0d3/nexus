@@ -59,8 +59,8 @@ const (
 type focusedPanel int
 
 const (
-	panelList  focusedPanel = iota // Main content list (default focus)
-	panelNav                       // Left navigation rail
+	panelNav   focusedPanel = iota // Left navigation rail (default focus)
+	panelList                      // Main content list
 	panelCtx                       // Right context panel
 	panelCount                     // Sentinel — used for modular cycling via (p+1)%panelCount
 )
