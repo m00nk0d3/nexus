@@ -9,6 +9,7 @@ import (
 type Issue struct {
 	Number int
 	Title  string
+	Body   string
 	Labels []string
 }
 

@@ -18,7 +18,7 @@ func TestNewIssueCommand(t *testing.T) {
 }
 
 func TestListOpenIssues_ValidOutput_ReturnsIssues(t *testing.T) {
-	raw := `[{"number":5,"title":"[Phase 1] Implement - Create/delete modals","labels":[{"name":"phase-1"}]},{"number":6,"title":"[Phase 1] Implement - Switch worktree","labels":[{"name":"phase-1"},{"name":"enhancement"}]}]`
+	raw := `[{"number":5,"title":"[Phase 1] Implement - Create/delete modals","body":"","labels":[{"name":"phase-1"}]},{"number":6,"title":"[Phase 1] Implement - Switch worktree","body":"Some details","labels":[{"name":"phase-1"},{"name":"enhancement"}]}]`
 
 	runner := func(_ string, _ ...string) (string, error) {
 		return raw, nil
@@ -102,7 +102,7 @@ func TestListOpenIssues_PassesCorrectArgs(t *testing.T) {
 	_, err := cmd.ListOpenIssues()
 
 	require.NoError(t, err)
-	assert.Equal(t, []string{"issue", "list", "--json", "number,title,labels", "--state", "open", "--limit", "100"}, capturedArgs)
+	assert.Equal(t, []string{"issue", "list", "--json", "number,title,body,labels", "--state", "open", "--limit", "100"}, capturedArgs)
 }
 
 func TestListOpenIssues_MapsDomainsCorrectly(t *testing.T) {
@@ -113,9 +113,9 @@ func TestListOpenIssues_MapsDomainsCorrectly(t *testing.T) {
 	}{
 		{
 			name: "single issue with multiple labels",
-			raw:  `[{"number":42,"title":"Fix the thing","labels":[{"name":"bug"},{"name":"priority-high"}]}]`,
+			raw:  `[{"number":42,"title":"Fix the thing","body":"Details here","labels":[{"name":"bug"},{"name":"priority-high"}]}]`,
 			expected: []domain.Issue{
-				{Number: 42, Title: "Fix the thing", Labels: []string{"bug", "priority-high"}},
+				{Number: 42, Title: "Fix the thing", Body: "Details here", Labels: []string{"bug", "priority-high"}},
 			},
 		},
 	}

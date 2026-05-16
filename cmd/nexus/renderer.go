@@ -207,7 +207,11 @@ func renderContextPanel(view activeView, worktrees []domain.Worktree, worktreeId
 			title := wrapText(iss.Title, ctxInner)
 			// "Labels: " prefix = 8 chars; wrap to remaining width to avoid re-wrap.
 			labels := wrapText(labelsStr, ctxInner-8)
-			content = fmt.Sprintf("Context: Issue #%d\n%s\n\nStatus: ● Open\nLabels: %s\n\n[g] Open in GitHub", iss.Number, title, labels)
+			body := wrapText(iss.Body, ctxInner)
+			if body == "" {
+				body = "(no description)"
+			}
+			content = fmt.Sprintf("Context: Issue #%d\n%s\n\nStatus: ● Open\nLabels: %s\n\n%s\n\n[g] Open in GitHub", iss.Number, title, labels, body)
 		}
 	case viewPRs:
 		if len(prs) == 0 || prIdx < 0 || prIdx >= len(prs) {

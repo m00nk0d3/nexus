@@ -1336,3 +1336,74 @@ func TestViewSwitch_ResetsCtxScrollOffset(t *testing.T) {
 	}
 }
 
+// ---------------------------------------------------------------------------
+// Issue body in context panel tests
+// ---------------------------------------------------------------------------
+
+// TestRenderer_IssueContextPanel_ShowsBody verifies that the issue context panel
+// renders the issue body when present.
+func TestRenderer_IssueContextPanel_ShowsBody(t *testing.T) {
+	tests := []struct {
+		name    string
+		issue   domain.Issue
+		wantIn  []string
+		wantOut []string
+	}{
+		{
+			name: "shows body text when populated",
+			issue: domain.Issue{
+				Number: 7,
+				Title:  "Fix the bug",
+				Body:   "This bug causes a crash on startup.",
+				Labels: []string{},
+			},
+			wantIn: []string{"This bug causes a crash on startup."},
+		},
+		{
+			name: "shows (no description) when body is empty",
+			issue: domain.Issue{
+				Number: 8,
+				Title:  "Empty body issue",
+				Body:   "",
+				Labels: []string{},
+			},
+			wantIn: []string{"(no description)"},
+		},
+		{
+			name: "body appears alongside all context fields",
+			issue: domain.Issue{
+				Number: 9,
+				Title:  "Some issue",
+				Body:   "Details about the issue.",
+				Labels: []string{"bug"},
+			},
+			wantIn: []string{
+				"Context: Issue #9",
+				"Some issue",
+				"Status: ● Open",
+				"Labels: [bug]",
+				"Details about the issue.",
+				"[g] Open in GitHub",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			model := NewModel()
+			require.NotNil(t, model)
+			model.view = viewIssues
+			model.issues = []domain.Issue{tt.issue}
+			model.selectedIssueIdx = 0
+
+			view := model.View()
+
+			for _, want := range tt.wantIn {
+				assert.Contains(t, view, want)
+			}
+			for _, notWant := range tt.wantOut {
+				assert.NotContains(t, view, notWant)
+			}
+		})
+	}
+}
