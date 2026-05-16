@@ -317,7 +317,7 @@ func TestRenderIssueList_ContainsHeaders(t *testing.T) {
 	theme := styles.NewTheme("digital-noir")
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := renderIssueList(nil, 0, theme, 80, 20)
+			result := renderIssueList(nil, 0, theme, 80, 20, false)
 			for _, want := range tt.wantIn {
 				assert.Contains(t, result, want)
 			}
@@ -363,7 +363,7 @@ func TestRenderIssueList_ContainsIssueRows(t *testing.T) {
 	theme := styles.NewTheme("digital-noir")
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := renderIssueList(issues, tt.selectedIdx, theme, 80, 20)
+			result := renderIssueList(issues, tt.selectedIdx, theme, 80, 20, false)
 			for _, want := range tt.wantIn {
 				assert.Contains(t, result, want)
 			}
@@ -387,7 +387,7 @@ func TestRenderPRList_ContainsHeaders(t *testing.T) {
 	theme := styles.NewTheme("digital-noir")
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := renderPRList(nil, 0, theme, 80, 20)
+			result := renderPRList(nil, 0, theme, 80, 20, false)
 			for _, want := range tt.wantIn {
 				assert.Contains(t, result, want)
 			}
@@ -428,7 +428,7 @@ func TestRenderPRList_ContainsPRRows(t *testing.T) {
 	theme := styles.NewTheme("digital-noir")
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := renderPRList(prs, tt.selectedIdx, theme, 80, 20)
+			result := renderPRList(prs, tt.selectedIdx, theme, 80, 20, false)
 			for _, want := range tt.wantIn {
 				assert.Contains(t, result, want)
 			}
@@ -1009,11 +1009,90 @@ func TestRenderer_GHIDColumn_WithLinkedPR(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// End Phase 3 tests (renderer_test.go)
+// Phase 4: clipContent & panel focus rendering tests
 // ---------------------------------------------------------------------------
 
-// TestPrStateColor verifies that prStateColor returns the correct lipgloss color
-// for each known PR state and a safe default for unknown states.
+// TestClipContent verifies that clipContent correctly slices content lines
+// with scroll offset and maxLines constraints.
+func TestClipContent(t *testing.T) {
+	tests := []struct {
+		name     string
+		content  string
+		offset   int
+		maxLines int
+		wantOut  string
+	}{
+		{
+			name:     "no clipping needed when within bounds",
+			content:  "line1\nline2\nline3",
+			offset:   0,
+			maxLines: 10,
+			wantOut:  "line1\nline2\nline3",
+		},
+		{
+			name:     "clips to maxLines",
+			content:  "a\nb\nc\nd\ne",
+			offset:   0,
+			maxLines: 3,
+			wantOut:  "a\nb\nc",
+		},
+		{
+			name:     "applies offset",
+			content:  "a\nb\nc\nd",
+			offset:   1,
+			maxLines: 10,
+			wantOut:  "b\nc\nd",
+		},
+		{
+			name:     "applies offset and clips",
+			content:  "a\nb\nc\nd\ne",
+			offset:   1,
+			maxLines: 2,
+			wantOut:  "b\nc",
+		},
+		{
+			name:     "offset beyond content clamps to last line",
+			content:  "a\nb",
+			offset:   5,
+			maxLines: 10,
+			wantOut:  "b",
+		},
+		{
+			name:     "zero maxLines returns content unchanged",
+			content:  "a\nb\nc",
+			offset:   0,
+			maxLines: 0,
+			wantOut:  "a\nb\nc",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := clipContent(tt.content, tt.offset, tt.maxLines)
+			assert.Equal(t, tt.wantOut, result)
+		})
+	}
+}
+
+// TestRenderFull_FooterContainsTabAndJKHints verifies that the footer bar
+// includes the new Tab panel and j/k navigation hints.
+func TestRenderFull_FooterContainsTabAndJKHints(t *testing.T) {
+	model := NewModel()
+	require.NotNil(t, model)
+
+	view := model.View()
+
+	assert.Contains(t, view, "[Tab]")
+	assert.Contains(t, view, "[j/k]")
+	// Old hints must still be present
+	assert.Contains(t, view, "[Enter] Select")
+	assert.Contains(t, view, "[esc] Quit")
+}
+
+// ---------------------------------------------------------------------------
+// End Phase 4 tests (renderer_test.go)
+// ---------------------------------------------------------------------------
+
 func TestPrStateColor(t *testing.T) {
 	tests := []struct {
 		state     string

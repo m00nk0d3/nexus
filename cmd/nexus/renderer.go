@@ -13,7 +13,7 @@ import (
 
 const (
 	appVersion       = "1.0"
-	footerHints      = "[↑/↓] Navigate | [Enter] Select | [t] Theme | [g] Open in GH | [esc] Quit"
+	footerHints      = "[Tab] Panel | [j/k] Navigate | [Enter] Select | [t] Theme | [g] GH | [esc] Quit"
 	actionBarHints   = "[c-n] New  [c-d] Delete  [c-l] Lock | [f1] Help"
 	defaultTermWidth = 120
 	navPanelInner    = 18
@@ -45,7 +45,7 @@ var navItems = []navItem{
 // renderFull builds the complete 3-pane TUI layout.
 // termWidth is the terminal column count; 0 falls back to defaultTermWidth.
 // termHeight is the terminal row count; 0 disables explicit panel height.
-func renderFull(worktrees []domain.Worktree, selectedIdx int, repoPath string, themeIdx int, view activeView, termWidth, termHeight int, syncing bool, lastSynced time.Time, syncErr error, issues []domain.Issue, selectedIssueIdx int, prs []domain.PullRequest, selectedPRIdx int) string {
+func renderFull(worktrees []domain.Worktree, selectedIdx int, repoPath string, themeIdx int, view activeView, termWidth, termHeight int, syncing bool, lastSynced time.Time, syncErr error, issues []domain.Issue, selectedIssueIdx int, prs []domain.PullRequest, selectedPRIdx int, focused focusedPanel, ctxScroll int) string {
 	if termWidth <= 0 {
 		termWidth = defaultTermWidth
 	}
@@ -68,19 +68,19 @@ func renderFull(worktrees []domain.Worktree, selectedIdx int, repoPath string, t
 	}
 
 	header := renderHeader(repoPath, theme, headerInner)
-	nav := renderNavRail(theme, panelHeight, view)
+	nav := renderNavRail(theme, panelHeight, view, focused == panelNav)
 
 	var list string
 	switch view {
 	case viewIssues:
-		list = renderIssueList(issues, selectedIssueIdx, theme, listInner, panelHeight)
+		list = renderIssueList(issues, selectedIssueIdx, theme, listInner, panelHeight, focused == panelList)
 	case viewPRs:
-		list = renderPRList(prs, selectedPRIdx, theme, listInner, panelHeight)
+		list = renderPRList(prs, selectedPRIdx, theme, listInner, panelHeight, focused == panelList)
 	default:
-		list = renderWorktreePanel(worktrees, selectedIdx, theme, listInner, panelHeight)
+		list = renderWorktreePanel(worktrees, selectedIdx, theme, listInner, panelHeight, focused == panelList)
 	}
 
-	ctx := renderContextPanel(view, worktrees, selectedIdx, issues, selectedIssueIdx, prs, selectedPRIdx, theme, panelHeight)
+	ctx := renderContextPanel(view, worktrees, selectedIdx, issues, selectedIssueIdx, prs, selectedPRIdx, theme, panelHeight, ctxScroll, focused == panelCtx)
 	mainRow := lipgloss.JoinHorizontal(lipgloss.Top, nav, list, ctx)
 	footer := renderFooterBar(theme, time.Now().UTC().Format("2006-01-02"), termWidth, syncing, lastSynced, syncErr)
 	actionBar := renderActionBar(theme, termWidth)
@@ -99,7 +99,7 @@ func renderHeader(repoPath string, theme styles.Theme, innerWidth int) string {
 	return theme.GetStyle("header").Width(innerWidth).Render(text)
 }
 
-func renderNavRail(theme styles.Theme, panelHeight int, view activeView) string {
+func renderNavRail(theme styles.Theme, panelHeight int, view activeView, focused bool) string {
 	var b strings.Builder
 	for i, item := range navItems {
 		cursor := "  "
@@ -109,13 +109,16 @@ func renderNavRail(theme styles.Theme, panelHeight int, view activeView) string 
 		b.WriteString(fmt.Sprintf("%s%s: %s\n", cursor, item.key, item.label))
 	}
 	st := theme.GetStyle("nav-rail").Width(navPanelInner + panelPaddingOverhead)
+	if !focused {
+		st = theme.MutedBorder(st)
+	}
 	if panelHeight > 0 {
 		st = st.Height(panelHeight)
 	}
 	return st.Render(strings.TrimRight(b.String(), "\n"))
 }
 
-func renderWorktreePanel(worktrees []domain.Worktree, selectedIdx int, theme styles.Theme, listInner, panelHeight int) string {
+func renderWorktreePanel(worktrees []domain.Worktree, selectedIdx int, theme styles.Theme, listInner, panelHeight int, focused bool) string {
 	var content strings.Builder
 
 	// fixed columns: cursor(2) + name(18) + sep(1) + sep(1) + status(8) + sep(1) + updated(10) + sep(1) + ghid(6) = 48
@@ -165,13 +168,16 @@ func renderWorktreePanel(worktrees []domain.Worktree, selectedIdx int, theme sty
 	}
 
 	st := theme.GetStyle("worktree-list").Width(listInner + panelPaddingOverhead)
+	if !focused {
+		st = theme.MutedBorder(st)
+	}
 	if panelHeight > 0 {
 		st = st.Height(panelHeight)
 	}
 	return st.Render(strings.TrimRight(content.String(), "\n"))
 }
 
-func renderContextPanel(view activeView, worktrees []domain.Worktree, worktreeIdx int, issues []domain.Issue, issueIdx int, prs []domain.PullRequest, prIdx int, theme styles.Theme, panelHeight int) string {
+func renderContextPanel(view activeView, worktrees []domain.Worktree, worktreeIdx int, issues []domain.Issue, issueIdx int, prs []domain.PullRequest, prIdx int, theme styles.Theme, panelHeight int, ctxScroll int, focused bool) string {
 	var content string
 	switch view {
 	case viewIssues:
@@ -225,13 +231,17 @@ func renderContextPanel(view activeView, worktrees []domain.Worktree, worktreeId
 		}
 	}
 	st := theme.GetStyle("context-panel").Width(ctxPanelInner + panelPaddingOverhead)
+	if !focused {
+		st = theme.MutedBorder(st)
+	}
 	if panelHeight > 0 {
+		content = clipContent(content, ctxScroll, panelHeight)
 		st = st.Height(panelHeight)
 	}
 	return st.Render(content)
 }
 
-func renderIssueList(issues []domain.Issue, selectedIdx int, theme styles.Theme, listInner, panelHeight int) string {
+func renderIssueList(issues []domain.Issue, selectedIdx int, theme styles.Theme, listInner, panelHeight int, focused bool) string {
 	var content strings.Builder
 	headerStyle := theme.GetStyle("table-header")
 	titleWidth := listInner - 30
@@ -262,13 +272,16 @@ func renderIssueList(issues []domain.Issue, selectedIdx int, theme styles.Theme,
 		content.WriteString("  No issues found.\n")
 	}
 	st := theme.GetStyle("worktree-list").Width(listInner + panelPaddingOverhead)
+	if !focused {
+		st = theme.MutedBorder(st)
+	}
 	if panelHeight > 0 {
 		st = st.Height(panelHeight)
 	}
 	return st.Render(strings.TrimRight(content.String(), "\n"))
 }
 
-func renderPRList(prs []domain.PullRequest, selectedIdx int, theme styles.Theme, listInner, panelHeight int) string {
+func renderPRList(prs []domain.PullRequest, selectedIdx int, theme styles.Theme, listInner, panelHeight int, focused bool) string {
 	var content strings.Builder
 	headerStyle := theme.GetStyle("table-header")
 	titleWidth := listInner - 50
@@ -299,10 +312,33 @@ func renderPRList(prs []domain.PullRequest, selectedIdx int, theme styles.Theme,
 		content.WriteString("  No open PRs.\n")
 	}
 	st := theme.GetStyle("worktree-list").Width(listInner + panelPaddingOverhead)
+	if !focused {
+		st = theme.MutedBorder(st)
+	}
 	if panelHeight > 0 {
 		st = st.Height(panelHeight)
 	}
 	return st.Render(strings.TrimRight(content.String(), "\n"))
+}
+
+// clipContent slices content lines for bounded panel rendering.
+// offset skips the first N lines; maxLines caps the visible output.
+// If maxLines is 0 the content is returned unchanged.
+func clipContent(content string, offset, maxLines int) string {
+	if maxLines <= 0 {
+		return content
+	}
+	lines := strings.Split(content, "\n")
+	if offset > 0 {
+		if offset >= len(lines) {
+			offset = len(lines) - 1
+		}
+		lines = lines[offset:]
+	}
+	if len(lines) > maxLines {
+		lines = lines[:maxLines]
+	}
+	return strings.Join(lines, "\n")
 }
 
 func renderFooterBar(theme styles.Theme, date string, termWidth int, syncing bool, lastSynced time.Time, syncErr error) string {

@@ -1,43 +1,58 @@
-# TDD Enforcer Memory — nexus (m00nk0d3/nexus)
+ï»¿# TDD Enforcer Memory - nexus (m00nk0d3/nexus)
 
 ## Project Stack
-- Go (backend only), located at repo root
-- Test runner: go test ./internal/...
+- Go TUI app (Bubbletea), package `main` in `cmd/nexus/`
+- Test runner: `go test ./cmd/nexus/... -v`
+- Build: `go build ./...`
 
 ## Test Commands
-- Run all tests: go test ./internal/exec/... ./internal/domain/...
-- Run with verbose output: go test -v ./internal/exec/... ./internal/domain/...
-- Filter specific test: go test -run TestName ./internal/exec/...
+- Run all tests: `go test ./cmd/nexus/...`
+- Run renderer tests: `go test ./cmd/nexus/... -run "TestRenderer"`
+- Filter specific test: `go test ./cmd/nexus/... -run TestName`
 
 ## Architecture Pattern
-- internal/domain/ — pure structs, no deps (Issue, PullRequest, Worktree…)
-- internal/exec/ — gh/git CLI wrappers; use injected commandRunner for testability
-- Constructor pair: NewXxx(repoPath) calls NewXxxWithRunner(repoPath, runGhCommand)
-- Tests always use NewXxxWithRunner with a mock runner func
+- `internal/domain/` -- pure structs (Issue, PullRequest, Worktree)
+- `cmd/nexus/app.go` -- BubbleTea Model, Update, View, NewModel()
+- `cmd/nexus/renderer.go` -- pure render functions called from View()
+- Tests use `NewModel()` + set unexported fields directly (same `main` package)
 
-## Test Conventions (exec package)
-- Mock runner: unc(_ string, args ...string) (string, error) { return output, err }
-- Capture args: ar capturedArgs []string inside the runner closure
-- Table-driven tests for happy path, error, empty, edge cases in one 	ests := []struct{...} block
-- Use 	estify/assert + 	estify/require; equire.NoError, ssert.Contains, ssert.Equal
+## TUI Test Conventions (renderer_test.go)
+- All tests via `model.View()` -- no direct render function calls for context panel
+- Set state: `model.view = viewWorktrees/viewIssues/viewPRs`, `model.Worktrees`, `model.selectedIdx`
+- Lipgloss ANSI codes stripped in test env (no TTY), raw text is directly assertable
+- Use `assert.Contains(t, view, want)` for positive assertions
+- Use `assert.NotContains(t, view, notWant)` for negative assertions
+- `model.width = 300` for wide-terminal tests to prevent truncation
 
-## Error Wrapping Convention
-- mt.Errorf("list open prs: %w", err) — verb phrase prefix, then %w
-- Parse errors: mt.Errorf("parse pr list: %w", err)
-- Single-item fetch: mt.Errorf("get pr: %w", err) / mt.Errorf("parse pr: %w", err)
+## Key Model Fields (accessible in same package)
+- `model.selectedIdx` -- worktree selection
+- `model.selectedIssueIdx`, `model.selectedPRIdx`
+- `model.view`, `model.Worktrees`, `model.issues`, `model.prs`
+- `model.syncing`, `model.lastSynced`, `model.syncErr`, `model.width`
 
-## JSON Mapping Pattern (gh CLI)
-- Inner structs (ghLabel, ghAuthor, ghIssue, ghPR) kept unexported in the exec package
-- Labels always mapped via make([]string, len(g.Labels)) to guarantee non-nil slice
-- Shared mapping extracted to ghXxxToDomain(g ghXxx) domain.Xxx helper to avoid duplication
+## Renderer Helpers
+- `worktreeStatus(wt)` returns "Idle" | "Dirty" | "Locked"
+- `truncateStr(s, n)` -- clips to n runes with "..."
+- `formatLabels([]string)` -- "[label1][label2]" format (shared between issue + PR contexts)
+- `prStateColor(state)` -- lipgloss.Color: OPEN=#00D9FF, MERGED=#9B59B6, CLOSED=#E74C3C
+
+## GH:ID Column (renderWorktreePanel)
+- Default ghID = "-" when LinkedPR == nil (not empty string)
+- Non-selected rows: colorize with lipgloss (OPEN=cyan, MERGED/CLOSED=grey #4A5568)
+- Selected rows: ghID embedded in fmt.Sprintf string (no individual coloring needed)
+
+## Context Panel -- Worktree View (renderContextPanel default case)
+- With LinkedPR: shows "Context: PR #N", title (truncated), "GH Title:", "Author: @", "Status: * STATE", "Labels: [x][y]", AGENT COMMANDS
+- Without LinkedPR: shows "Context: basename", "Branch: ", "Path: ", AGENT COMMANDS
+- Agent commands (always present): `[a] Spawn Claude Code`, `[c] Spawn Copilot`, `[s] Open Shell in WT`
 
 ## Completed Issues
-- Issue #8: Added domain.PullRequest, GitHubClient with ListOpenPRs/GetPR — 12 new tests, all green
+- Issue #8: Added domain.PullRequest, GitHubClient with ListOpenPRs/GetPR
+- Issue #14: Added Issues/PRs views, renderIssueList, renderPRList, context panel for Issues+PRs
+- Issue #15: PR context panel in worktree view + GH:ID column colorization + "-" default when no PR
 
-## Issue #10: SQLite DB Setup (feat/issue-10-sqlite-db-setup)
-- RED tests written: `internal/data/db_test.go` (`package data_test`)
-- Target API: `func NewDB(path string) (*DB, error)`, `type DB struct { DB *sql.DB }`, `func (db *DB) Close() error`
-- SQLite driver: `modernc.org/sqlite` (pure-Go, no CGO). Driver name `"sqlite"`. Run `go get modernc.org/sqlite`.
-- Schema tables required: `worktrees`, `github_prs`, `github_issues`, `agent_history`, `context_snapshots`
-- `worktrees` min cols: `path TEXT`, `branch TEXT`. `github_prs` min cols: `number INTEGER`, `title TEXT`, `branch TEXT`, `state TEXT`.
-- Existing stub in `sqlite.go` has `type Database` / `NewDatabase` -- keep it; add new `db.go` with `type DB`.
+## exec package conventions (internal/exec/)
+- Constructor pair: NewXxx(repoPath) calls NewXxxWithRunner(repoPath, runGhCommand)
+- Tests always use NewXxxWithRunner with a mock runner func
+- Error wrapping: `fmt.Errorf("verb phrase: %w", err)` pattern
+- JSON inner structs (ghLabel, ghAuthor, etc.) kept unexported in exec package
