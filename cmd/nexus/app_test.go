@@ -610,6 +610,262 @@ func TestModel_SyncTickMsg_TriggersSyncCmd(t *testing.T) {
 	assert.NotNil(t, cmd, "syncTickMsg must trigger a sync Cmd")
 }
 
+// ---------------------------------------------------------------------------
+// Phase 2: Issues & PRs View — RED tests (features not yet implemented)
+// ---------------------------------------------------------------------------
+
+// TestModel_ViewSwitching verifies that pressing W/I/P (upper- and lower-case)
+// switches the model's active view to the correct activeView constant.
+func TestModel_ViewSwitching(t *testing.T) {
+	tests := []struct {
+		name     string
+		key      rune
+		wantView activeView
+	}{
+		{
+			name:     "pressing W sets view to viewWorktrees",
+			key:      'W',
+			wantView: viewWorktrees,
+		},
+		{
+			name:     "pressing I sets view to viewIssues",
+			key:      'I',
+			wantView: viewIssues,
+		},
+		{
+			name:     "pressing P sets view to viewPRs",
+			key:      'P',
+			wantView: viewPRs,
+		},
+		{
+			name:     "pressing w (lowercase) sets view to viewWorktrees",
+			key:      'w',
+			wantView: viewWorktrees,
+		},
+		{
+			name:     "pressing i (lowercase) sets view to viewIssues",
+			key:      'i',
+			wantView: viewIssues,
+		},
+		{
+			name:     "pressing p (lowercase) sets view to viewPRs",
+			key:      'p',
+			wantView: viewPRs,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			model := NewModel()
+			require.NotNil(t, model)
+
+			updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{tt.key}})
+			m, ok := updated.(*Model)
+			require.True(t, ok, "Update must return *Model")
+
+			assert.Equal(t, tt.wantView, m.view)
+		})
+	}
+}
+
+// TestModel_IssueNavigation verifies that up/down navigation in viewIssues
+// moves selectedIssueIdx correctly and does NOT move the worktree selectedIdx.
+func TestModel_IssueNavigation(t *testing.T) {
+	issues := []domain.Issue{
+		{Number: 1, Title: "First"},
+		{Number: 2, Title: "Second"},
+		{Number: 3, Title: "Third"},
+	}
+
+	tests := []struct {
+		name            string
+		initialIssueIdx int
+		keyType         tea.KeyType
+		wantIssueIdx    int
+		wantWorktreeIdx int
+	}{
+		{
+			name:            "down key increments selectedIssueIdx",
+			initialIssueIdx: 0,
+			keyType:         tea.KeyDown,
+			wantIssueIdx:    1,
+			wantWorktreeIdx: 0,
+		},
+		{
+			name:            "up key decrements selectedIssueIdx",
+			initialIssueIdx: 1,
+			keyType:         tea.KeyUp,
+			wantIssueIdx:    0,
+			wantWorktreeIdx: 0,
+		},
+		{
+			name:            "up key does not go below 0 (boundary)",
+			initialIssueIdx: 0,
+			keyType:         tea.KeyUp,
+			wantIssueIdx:    0,
+			wantWorktreeIdx: 0,
+		},
+		{
+			name:            "down key does not exceed len(issues)-1 (boundary)",
+			initialIssueIdx: 2,
+			keyType:         tea.KeyDown,
+			wantIssueIdx:    2,
+			wantWorktreeIdx: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			model := NewModel()
+			require.NotNil(t, model)
+			model.issues = issues
+			model.view = viewIssues
+			model.selectedIssueIdx = tt.initialIssueIdx
+
+			updated, _ := model.Update(tea.KeyMsg{Type: tt.keyType})
+			m, ok := updated.(*Model)
+			require.True(t, ok, "Update must return *Model")
+
+			assert.Equal(t, tt.wantIssueIdx, m.selectedIssueIdx, "issue index mismatch")
+			assert.Equal(t, tt.wantWorktreeIdx, m.selectedIdx, "worktree idx must not change when navigating issues")
+		})
+	}
+}
+
+// TestModel_PRNavigation verifies that up/down navigation in viewPRs
+// moves selectedPRIdx correctly and does NOT move the worktree selectedIdx.
+func TestModel_PRNavigation(t *testing.T) {
+	prs := []domain.PullRequest{
+		{Number: 10, Title: "PR One"},
+		{Number: 11, Title: "PR Two"},
+		{Number: 12, Title: "PR Three"},
+	}
+
+	tests := []struct {
+		name            string
+		initialPRIdx    int
+		keyType         tea.KeyType
+		wantPRIdx       int
+		wantWorktreeIdx int
+	}{
+		{
+			name:            "down key increments selectedPRIdx",
+			initialPRIdx:    0,
+			keyType:         tea.KeyDown,
+			wantPRIdx:       1,
+			wantWorktreeIdx: 0,
+		},
+		{
+			name:            "up key decrements selectedPRIdx",
+			initialPRIdx:    1,
+			keyType:         tea.KeyUp,
+			wantPRIdx:       0,
+			wantWorktreeIdx: 0,
+		},
+		{
+			name:            "up key does not go below 0 (boundary)",
+			initialPRIdx:    0,
+			keyType:         tea.KeyUp,
+			wantPRIdx:       0,
+			wantWorktreeIdx: 0,
+		},
+		{
+			name:            "down key does not exceed len(prs)-1 (boundary)",
+			initialPRIdx:    2,
+			keyType:         tea.KeyDown,
+			wantPRIdx:       2,
+			wantWorktreeIdx: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			model := NewModel()
+			require.NotNil(t, model)
+			model.prs = prs
+			model.view = viewPRs
+			model.selectedPRIdx = tt.initialPRIdx
+
+			updated, _ := model.Update(tea.KeyMsg{Type: tt.keyType})
+			m, ok := updated.(*Model)
+			require.True(t, ok, "Update must return *Model")
+
+			assert.Equal(t, tt.wantPRIdx, m.selectedPRIdx, "PR index mismatch")
+			assert.Equal(t, tt.wantWorktreeIdx, m.selectedIdx, "worktree idx must not change when navigating PRs")
+		})
+	}
+}
+
+// TestModel_G_Key_OpensInBrowser verifies the [g] key opens the selected
+// issue or PR in the browser (returns non-nil Cmd), and is a no-op in
+// viewWorktrees or when the list is empty.
+func TestModel_G_Key_OpensInBrowser(t *testing.T) {
+	tests := []struct {
+		name       string
+		view       activeView
+		issues     []domain.Issue
+		prs        []domain.PullRequest
+		issueIdx   int
+		prIdx      int
+		wantCmdNil bool
+	}{
+		{
+			name:       "g in viewIssues with issue selected returns non-nil Cmd",
+			view:       viewIssues,
+			issues:     []domain.Issue{{Number: 5, Title: "Test Issue"}},
+			issueIdx:   0,
+			wantCmdNil: false,
+		},
+		{
+			name:       "g in viewPRs with PR selected returns non-nil Cmd",
+			view:       viewPRs,
+			prs:        []domain.PullRequest{{Number: 42, Title: "My PR", Branch: "feat/awesome", Author: "alice", State: "OPEN"}},
+			prIdx:      0,
+			wantCmdNil: false,
+		},
+		{
+			name:       "g in viewWorktrees is a no-op (returns nil Cmd)",
+			view:       viewWorktrees,
+			wantCmdNil: true,
+		},
+		{
+			name:       "g in viewIssues with empty issues list returns nil Cmd",
+			view:       viewIssues,
+			issues:     []domain.Issue{},
+			issueIdx:   0,
+			wantCmdNil: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			model := NewModel()
+			require.NotNil(t, model)
+			model.view = tt.view
+			if tt.issues != nil {
+				model.issues = tt.issues
+			}
+			if tt.prs != nil {
+				model.prs = tt.prs
+			}
+			model.selectedIssueIdx = tt.issueIdx
+			model.selectedPRIdx = tt.prIdx
+
+			_, cmd := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'g'}})
+
+			if tt.wantCmdNil {
+				assert.Nil(t, cmd, "expected nil Cmd (no-op) but got non-nil")
+			} else {
+				assert.NotNil(t, cmd, "expected non-nil Cmd to open in browser")
+			}
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// End Phase 2 RED tests (app_test.go)
+// ---------------------------------------------------------------------------
+
 func TestModel_WindowSizeMsg_StoresTerminalWidth(t *testing.T) {
 	tests := []struct {
 		name       string

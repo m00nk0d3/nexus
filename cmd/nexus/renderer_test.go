@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/m00nk0d3/nexus/internal/domain"
+	"github.com/m00nk0d3/nexus/internal/tui/styles"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -294,3 +295,380 @@ func TestRenderFooterBar_SyncStatus(t *testing.T) {
 		})
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Phase 2: Issues & PRs View — RED tests (features not yet implemented)
+// ---------------------------------------------------------------------------
+
+// TestRenderIssueList_ContainsHeaders verifies that renderIssueList renders
+// the required column headers: #, TITLE, STATUS, LABELS.
+func TestRenderIssueList_ContainsHeaders(t *testing.T) {
+	tests := []struct {
+		name   string
+		wantIn []string
+	}{
+		{
+			name:   "renders all required column headers",
+			wantIn: []string{"#", "TITLE", "STATUS", "LABELS"},
+		},
+	}
+
+	theme := styles.NewTheme("digital-noir")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := renderIssueList(nil, 0, theme, 80, 20)
+			for _, want := range tt.wantIn {
+				assert.Contains(t, result, want)
+			}
+		})
+	}
+}
+
+// TestRenderIssueList_ContainsIssueRows verifies that issue number, title, labels
+// are rendered, and that the selected row has a ">" cursor.
+func TestRenderIssueList_ContainsIssueRows(t *testing.T) {
+	issues := []domain.Issue{
+		{Number: 7, Title: "Fix the bug", Labels: []string{"bug", "p1"}},
+		{Number: 8, Title: "Add feature", Labels: []string{"enhancement"}},
+	}
+
+	tests := []struct {
+		name        string
+		selectedIdx int
+		wantIn      []string
+	}{
+		{
+			name:        "renders issue number and title for all issues",
+			selectedIdx: 0,
+			wantIn:      []string{"7", "Fix the bug", "8", "Add feature"},
+		},
+		{
+			name:        "renders issue labels",
+			selectedIdx: 0,
+			wantIn:      []string{"bug", "enhancement"},
+		},
+		{
+			name:        "selected issue (idx 0) has > cursor",
+			selectedIdx: 0,
+			wantIn:      []string{"> "},
+		},
+		{
+			name:        "selected issue (idx 1) has > cursor",
+			selectedIdx: 1,
+			wantIn:      []string{"> "},
+		},
+	}
+
+	theme := styles.NewTheme("digital-noir")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := renderIssueList(issues, tt.selectedIdx, theme, 80, 20)
+			for _, want := range tt.wantIn {
+				assert.Contains(t, result, want)
+			}
+		})
+	}
+}
+
+// TestRenderPRList_ContainsHeaders verifies that renderPRList renders
+// the required column headers: #, TITLE, BRANCH, AUTHOR, STATUS.
+func TestRenderPRList_ContainsHeaders(t *testing.T) {
+	tests := []struct {
+		name   string
+		wantIn []string
+	}{
+		{
+			name:   "renders all required column headers",
+			wantIn: []string{"#", "TITLE", "BRANCH", "AUTHOR", "STATUS"},
+		},
+	}
+
+	theme := styles.NewTheme("digital-noir")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := renderPRList(nil, 0, theme, 80, 20)
+			for _, want := range tt.wantIn {
+				assert.Contains(t, result, want)
+			}
+		})
+	}
+}
+
+// TestRenderPRList_ContainsPRRows verifies that PR number, title, branch, author
+// and state are rendered, and that the selected PR has a ">" cursor.
+func TestRenderPRList_ContainsPRRows(t *testing.T) {
+	prs := []domain.PullRequest{
+		{Number: 42, Title: "My PR", Branch: "feat/awesome", Author: "alice", State: "OPEN"},
+		{Number: 43, Title: "Fix PR", Branch: "fix/bug", Author: "bob", State: "OPEN"},
+	}
+
+	tests := []struct {
+		name        string
+		selectedIdx int
+		wantIn      []string
+	}{
+		{
+			name:        "renders PR number, title, branch, author, state",
+			selectedIdx: 0,
+			wantIn:      []string{"42", "My PR", "feat/awesome", "alice", "OPEN"},
+		},
+		{
+			name:        "selected PR (idx 0) has > cursor",
+			selectedIdx: 0,
+			wantIn:      []string{"> "},
+		},
+		{
+			name:        "second PR is also rendered",
+			selectedIdx: 0,
+			wantIn:      []string{"43", "Fix PR", "fix/bug", "bob"},
+		},
+	}
+
+	theme := styles.NewTheme("digital-noir")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := renderPRList(prs, tt.selectedIdx, theme, 80, 20)
+			for _, want := range tt.wantIn {
+				assert.Contains(t, result, want)
+			}
+		})
+	}
+}
+
+// TestRenderContextPanel_IssueContext verifies that when the active view is
+// viewIssues, the context panel shows the selected issue's number, title, labels,
+// and an "[g] Open in GitHub" hint.
+func TestRenderContextPanel_IssueContext(t *testing.T) {
+	tests := []struct {
+		name        string
+		issues      []domain.Issue
+		selectedIdx int
+		wantIn      []string
+	}{
+		{
+			name: "shows Issue context header with number and title",
+			issues: []domain.Issue{
+				{Number: 14, Title: "Implement Issues View", Labels: []string{"feature"}},
+			},
+			selectedIdx: 0,
+			wantIn:      []string{"Issue #14", "Implement Issues View"},
+		},
+		{
+			name: "shows labels in [label] bracket format",
+			issues: []domain.Issue{
+				{Number: 5, Title: "Bug Report", Labels: []string{"bug", "critical"}},
+			},
+			selectedIdx: 0,
+			wantIn:      []string{"[bug]", "[critical]"},
+		},
+		{
+			name: "shows [g] Open in GitHub hint",
+			issues: []domain.Issue{
+				{Number: 1, Title: "Some Issue", Labels: nil},
+			},
+			selectedIdx: 0,
+			wantIn:      []string{"[g] Open in GitHub"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			model := NewModel()
+			require.NotNil(t, model)
+			model.view = viewIssues
+			model.issues = tt.issues
+			model.selectedIssueIdx = tt.selectedIdx
+
+			view := model.View()
+
+			for _, want := range tt.wantIn {
+				assert.Contains(t, view, want)
+			}
+		})
+	}
+}
+
+// TestRenderContextPanel_PRContext verifies that when the active view is
+// viewPRs, the context panel shows the selected PR's number, title, branch,
+// author, state, and an "[g] Open in GitHub" hint.
+func TestRenderContextPanel_PRContext(t *testing.T) {
+	tests := []struct {
+		name      string
+		prs       []domain.PullRequest
+		prIdx     int
+		wantIn    []string
+	}{
+		{
+			name: "shows PR context header with number and title",
+			prs: []domain.PullRequest{
+				{Number: 42, Title: "Add search feature", Branch: "feat/search", Author: "alice", State: "OPEN"},
+			},
+			prIdx:  0,
+			wantIn: []string{"PR #42", "Add search feature"},
+		},
+		{
+			name: "shows branch and author in context panel",
+			prs: []domain.PullRequest{
+				{Number: 10, Title: "Fix bug", Branch: "fix/null-ptr", Author: "bob", State: "OPEN"},
+			},
+			prIdx:  0,
+			wantIn: []string{"fix/null-ptr", "bob"},
+		},
+		{
+			name: "shows PR state in context panel",
+			prs: []domain.PullRequest{
+				{Number: 55, Title: "Open PR", Branch: "feat/draft", Author: "carol", State: "OPEN"},
+			},
+			prIdx:  0,
+			wantIn: []string{"OPEN"},
+		},
+		{
+			name: "shows [g] Open in GitHub hint",
+			prs: []domain.PullRequest{
+				{Number: 1, Title: "Some PR", Branch: "main", Author: "dev", State: "OPEN"},
+			},
+			prIdx:  0,
+			wantIn: []string{"[g] Open in GitHub"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			model := NewModel()
+			require.NotNil(t, model)
+			model.view = viewPRs
+			model.prs = tt.prs
+			model.selectedPRIdx = tt.prIdx
+
+			view := model.View()
+
+			for _, want := range tt.wantIn {
+				assert.Contains(t, view, want)
+			}
+		})
+	}
+}
+
+// TestRenderFull_IssueViewShowsIssueList verifies that when view is viewIssues,
+// renderFull (via model.View()) shows issue data in the main list panel.
+func TestRenderFull_IssueViewShowsIssueList(t *testing.T) {
+	tests := []struct {
+		name   string
+		issues []domain.Issue
+		wantIn []string
+	}{
+		{
+			name: "issue view renders issue number and title",
+			issues: []domain.Issue{
+				{Number: 99, Title: "Test Issue"},
+			},
+			wantIn: []string{"99", "Test Issue"},
+		},
+		{
+			name: "issue view renders issue column headers",
+			issues: []domain.Issue{
+				{Number: 1, Title: "Any Issue"},
+			},
+			wantIn: []string{"TITLE", "STATUS"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			model := NewModel()
+			require.NotNil(t, model)
+			model.view = viewIssues
+			model.issues = tt.issues
+
+			view := model.View()
+
+			for _, want := range tt.wantIn {
+				assert.Contains(t, view, want)
+			}
+		})
+	}
+}
+
+// TestRenderFull_PRViewShowsPRList verifies that when view is viewPRs,
+// renderFull (via model.View()) shows PR data in the main list panel.
+func TestRenderFull_PRViewShowsPRList(t *testing.T) {
+	tests := []struct {
+		name   string
+		prs    []domain.PullRequest
+		wantIn []string
+	}{
+		{
+			name: "PR view renders PR number, title, and branch",
+			prs: []domain.PullRequest{
+				{Number: 88, Title: "Test PR", Branch: "feat/test", Author: "dev", State: "OPEN"},
+			},
+			wantIn: []string{"88", "Test PR", "feat/test"},
+		},
+		{
+			name: "PR view renders PR column headers",
+			prs: []domain.PullRequest{
+				{Number: 1, Title: "Any PR", Branch: "main", Author: "dev", State: "OPEN"},
+			},
+			wantIn: []string{"BRANCH", "AUTHOR"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			model := NewModel()
+			require.NotNil(t, model)
+			model.view = viewPRs
+			model.prs = tt.prs
+
+			view := model.View()
+
+			for _, want := range tt.wantIn {
+				assert.Contains(t, view, want)
+			}
+		})
+	}
+}
+
+// TestRenderFull_WorktreesViewStillWorks verifies that when view is viewWorktrees,
+// the existing worktree table still renders correctly.
+func TestRenderFull_WorktreesViewStillWorks(t *testing.T) {
+	tests := []struct {
+		name      string
+		worktrees []domain.Worktree
+		wantIn    []string
+	}{
+		{
+			name: "worktrees view shows worktree column headers",
+			worktrees: []domain.Worktree{
+				{Path: "/tmp/wt-main", Branch: "main", IsClean: true},
+			},
+			wantIn: []string{"NAME", "PATH", "STATUS"},
+		},
+		{
+			name: "worktrees view shows worktree name",
+			worktrees: []domain.Worktree{
+				{Path: "/tmp/wt-main", Branch: "main", IsClean: true},
+			},
+			wantIn: []string{"wt-main"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			model := NewModel()
+			require.NotNil(t, model)
+			model.view = viewWorktrees
+			model.Worktrees = tt.worktrees
+
+			view := model.View()
+
+			for _, want := range tt.wantIn {
+				assert.Contains(t, view, want)
+			}
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// End Phase 2 RED tests (renderer_test.go)
+// ---------------------------------------------------------------------------

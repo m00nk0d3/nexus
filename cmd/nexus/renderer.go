@@ -45,7 +45,7 @@ var navItems = []navItem{
 // renderFull builds the complete 3-pane TUI layout.
 // termWidth is the terminal column count; 0 falls back to defaultTermWidth.
 // termHeight is the terminal row count; 0 disables explicit panel height.
-func renderFull(worktrees []domain.Worktree, selectedIdx int, repoPath string, themeIdx, activeNav, termWidth, termHeight int, syncing bool, lastSynced time.Time, syncErr error) string {
+func renderFull(worktrees []domain.Worktree, selectedIdx int, repoPath string, themeIdx int, view activeView, termWidth, termHeight int, syncing bool, lastSynced time.Time, syncErr error, issues []domain.Issue, selectedIssueIdx int, prs []domain.PullRequest, selectedPRIdx int) string {
 	if termWidth <= 0 {
 		termWidth = defaultTermWidth
 	}
@@ -68,9 +68,19 @@ func renderFull(worktrees []domain.Worktree, selectedIdx int, repoPath string, t
 	}
 
 	header := renderHeader(repoPath, theme, headerInner)
-	nav := renderNavRail(theme, panelHeight, activeNav)
-	list := renderWorktreePanel(worktrees, selectedIdx, theme, listInner, panelHeight)
-	ctx := renderContextPanel(worktrees, selectedIdx, theme, panelHeight)
+	nav := renderNavRail(theme, panelHeight, int(view))
+
+	var list string
+	switch view {
+	case viewIssues:
+		list = renderIssueList(issues, selectedIssueIdx, theme, listInner, panelHeight)
+	case viewPRs:
+		list = renderPRList(prs, selectedPRIdx, theme, listInner, panelHeight)
+	default:
+		list = renderWorktreePanel(worktrees, selectedIdx, theme, listInner, panelHeight)
+	}
+
+	ctx := renderContextPanel(view, worktrees, selectedIdx, issues, selectedIssueIdx, prs, selectedPRIdx, theme, panelHeight)
 	mainRow := lipgloss.JoinHorizontal(lipgloss.Top, nav, list, ctx)
 	footer := renderFooterBar(theme, time.Now().UTC().Format("2006-01-02"), termWidth, syncing, lastSynced, syncErr)
 	actionBar := renderActionBar(theme, termWidth)
@@ -149,22 +159,117 @@ func renderWorktreePanel(worktrees []domain.Worktree, selectedIdx int, theme sty
 	return st.Render(strings.TrimRight(content.String(), "\n"))
 }
 
-func renderContextPanel(worktrees []domain.Worktree, selectedIdx int, theme styles.Theme, panelHeight int) string {
+func renderContextPanel(view activeView, worktrees []domain.Worktree, worktreeIdx int, issues []domain.Issue, issueIdx int, prs []domain.PullRequest, prIdx int, theme styles.Theme, panelHeight int) string {
 	var content string
-	if len(worktrees) == 0 || selectedIdx < 0 || selectedIdx >= len(worktrees) {
-		content = "No worktree selected.\nSelect a worktree to\nview context."
-	} else {
-		wt := worktrees[selectedIdx]
-		content = fmt.Sprintf(
-			"Context: %s\nBranch: %s\nStatus: %s\n\nAGENT COMMANDS:\n[a] Spawn Claude\n[c] Spawn Copilot",
-			filepath.Base(wt.Path), wt.Branch, worktreeStatus(wt),
-		)
+	switch view {
+	case viewIssues:
+		if len(issues) == 0 || issueIdx < 0 || issueIdx >= len(issues) {
+			content = "No issue selected.\nPress I to view issues."
+		} else {
+			iss := issues[issueIdx]
+			labelStrs := make([]string, len(iss.Labels))
+			for i, l := range iss.Labels {
+				labelStrs[i] = "[" + l + "]"
+			}
+			labelsStr := strings.Join(labelStrs, "")
+			content = fmt.Sprintf("Context: Issue #%d\n%s\n\nStatus: ● Open\nLabels: %s\n\n[g] Open in GitHub", iss.Number, iss.Title, labelsStr)
+		}
+	case viewPRs:
+		if len(prs) == 0 || prIdx < 0 || prIdx >= len(prs) {
+			content = "No PR selected.\nPress P to view PRs."
+		} else {
+			pr := prs[prIdx]
+			state := pr.State
+			if pr.IsDraft {
+				state = "DRAFT"
+			}
+			content = fmt.Sprintf("Context: PR #%d\n%s\n\nBranch: %s\nAuthor: @%s\nStatus: %s\n\n[g] Open in GitHub", pr.Number, pr.Title, pr.Branch, pr.Author, state)
+		}
+	default: // viewWorktrees
+		if len(worktrees) == 0 || worktreeIdx < 0 || worktreeIdx >= len(worktrees) {
+			content = "No worktree selected.\nSelect a worktree to\nview context."
+		} else {
+			wt := worktrees[worktreeIdx]
+			content = fmt.Sprintf(
+				"Context: %s\nBranch: %s\nStatus: %s\n\nAGENT COMMANDS:\n[a] Spawn Claude\n[c] Spawn Copilot",
+				filepath.Base(wt.Path), wt.Branch, worktreeStatus(wt),
+			)
+		}
 	}
 	st := theme.GetStyle("context-panel").Width(ctxPanelInner + panelPaddingOverhead)
 	if panelHeight > 0 {
 		st = st.Height(panelHeight)
 	}
 	return st.Render(content)
+}
+
+func renderIssueList(issues []domain.Issue, selectedIdx int, theme styles.Theme, listInner, panelHeight int) string {
+	var content strings.Builder
+	headerStyle := theme.GetStyle("table-header")
+	titleWidth := listInner - 30
+	if titleWidth < 10 {
+		titleWidth = 10
+	}
+	headerRow := fmt.Sprintf("  %-6s %-*s %-8s %s", "#", titleWidth, "TITLE", "STATUS", "LABELS")
+	content.WriteString(headerStyle.Render(headerRow))
+	content.WriteString("\n")
+	for i, issue := range issues {
+		labels := strings.Join(issue.Labels, " ")
+		title := truncateStr(issue.Title, titleWidth)
+		if i == selectedIdx {
+			row := fmt.Sprintf("%-6d %-*s %-8s %s", issue.Number, titleWidth, title, "Open", labels)
+			content.WriteString(theme.GetStyle("selected-row").Width(listInner).Render("> " + row))
+		} else {
+			row := fmt.Sprintf("  %-6d %-*s %-8s %s", issue.Number, titleWidth, title, "Open", labels)
+			content.WriteString(row)
+		}
+		content.WriteString("\n")
+	}
+	if len(issues) == 0 {
+		content.WriteString("  No issues found.\n")
+	}
+	st := theme.GetStyle("worktree-list").Width(listInner + panelPaddingOverhead)
+	if panelHeight > 0 {
+		st = st.Height(panelHeight)
+	}
+	return st.Render(strings.TrimRight(content.String(), "\n"))
+}
+
+func renderPRList(prs []domain.PullRequest, selectedIdx int, theme styles.Theme, listInner, panelHeight int) string {
+	var content strings.Builder
+	headerStyle := theme.GetStyle("table-header")
+	titleWidth := listInner - 50
+	if titleWidth < 10 {
+		titleWidth = 10
+	}
+	headerRow := fmt.Sprintf("  %-6s %-*s %-16s %-14s %s", "#", titleWidth, "TITLE", "BRANCH", "AUTHOR", "STATUS")
+	content.WriteString(headerStyle.Render(headerRow))
+	content.WriteString("\n")
+	for i, pr := range prs {
+		title := truncateStr(pr.Title, titleWidth)
+		branch := truncateStr(pr.Branch, 16)
+		author := truncateStr(pr.Author, 14)
+		state := pr.State
+		if pr.IsDraft {
+			state = "DRAFT"
+		}
+		if i == selectedIdx {
+			row := fmt.Sprintf("%-6d %-*s %-16s %-14s %s", pr.Number, titleWidth, title, branch, author, state)
+			content.WriteString(theme.GetStyle("selected-row").Width(listInner).Render("> " + row))
+		} else {
+			row := fmt.Sprintf("  %-6d %-*s %-16s %-14s %s", pr.Number, titleWidth, title, branch, author, state)
+			content.WriteString(row)
+		}
+		content.WriteString("\n")
+	}
+	if len(prs) == 0 {
+		content.WriteString("  No open PRs.\n")
+	}
+	st := theme.GetStyle("worktree-list").Width(listInner + panelPaddingOverhead)
+	if panelHeight > 0 {
+		st = st.Height(panelHeight)
+	}
+	return st.Render(strings.TrimRight(content.String(), "\n"))
 }
 
 func renderFooterBar(theme styles.Theme, date string, termWidth int, syncing bool, lastSynced time.Time, syncErr error) string {
