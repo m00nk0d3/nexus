@@ -670,5 +670,341 @@ func TestRenderFull_WorktreesViewStillWorks(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// End Phase 2 tests (renderer_test.go)
+// Phase 3: Issue #15 — PR Context Panel & GH:ID Column tests
+// ---------------------------------------------------------------------------
+
+// TestRenderer_ContextPanel_WithLinkedPR verifies that when a worktree has a
+// LinkedPR, the context panel shows PR-specific information: number, title,
+// author, state, and labels in the correct format.
+func TestRenderer_ContextPanel_WithLinkedPR(t *testing.T) {
+	tests := []struct {
+		name     string
+		worktree domain.Worktree
+		wantIn   []string
+	}{
+		{
+			name: "shows PR context header with number",
+			worktree: domain.Worktree{
+				Path:   "/tmp/feat-login",
+				Branch: "feat/login",
+				IsClean: true,
+				LinkedPR: &domain.PullRequest{
+					Number: 42,
+					Title:  "Add login feature",
+					Author: "alice",
+					State:  "OPEN",
+					Labels: []string{},
+				},
+			},
+			wantIn: []string{"Context: PR #42"},
+		},
+		{
+			name: "shows PR title in context",
+			worktree: domain.Worktree{
+				Path:   "/tmp/feat-login",
+				Branch: "feat/login",
+				IsClean: true,
+				LinkedPR: &domain.PullRequest{
+					Number: 42,
+					Title:  "Add login feature",
+					Author: "alice",
+					State:  "OPEN",
+					Labels: []string{},
+				},
+			},
+			wantIn: []string{"Add login feature"},
+		},
+		{
+			name: "shows GH Title label and author with @ prefix",
+			worktree: domain.Worktree{
+				Path:   "/tmp/feat-login",
+				Branch: "feat/login",
+				IsClean: true,
+				LinkedPR: &domain.PullRequest{
+					Number: 42,
+					Title:  "Add login feature",
+					Author: "alice",
+					State:  "OPEN",
+					Labels: []string{},
+				},
+			},
+			wantIn: []string{"GH Title:", "Author: @alice"},
+		},
+		{
+			name: "shows status dot and state",
+			worktree: domain.Worktree{
+				Path:   "/tmp/feat-login",
+				Branch: "feat/login",
+				IsClean: true,
+				LinkedPR: &domain.PullRequest{
+					Number: 42,
+					Title:  "Add login feature",
+					Author: "alice",
+					State:  "OPEN",
+					Labels: []string{},
+				},
+			},
+			wantIn: []string{"Status: ●", "OPEN"},
+		},
+		{
+			name: "shows labels in bracket format",
+			worktree: domain.Worktree{
+				Path:   "/tmp/feat-auth",
+				Branch: "feat/auth",
+				IsClean: true,
+				LinkedPR: &domain.PullRequest{
+					Number: 99,
+					Title:  "Auth refactor",
+					Author: "bob",
+					State:  "OPEN",
+					Labels: []string{"enhancement", "backend"},
+				},
+			},
+			wantIn: []string{"Labels: [enhancement][backend]"},
+		},
+		{
+			name: "shows agent commands section",
+			worktree: domain.Worktree{
+				Path:   "/tmp/feat-login",
+				Branch: "feat/login",
+				IsClean: true,
+				LinkedPR: &domain.PullRequest{
+					Number: 42,
+					Title:  "Add login feature",
+					Author: "alice",
+					State:  "MERGED",
+					Labels: []string{},
+				},
+			},
+			wantIn: []string{"AGENT COMMANDS:"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			model := NewModel()
+			require.NotNil(t, model)
+			model.view = viewWorktrees
+			model.Worktrees = []domain.Worktree{tt.worktree}
+			model.selectedIdx = 0
+
+			view := model.View()
+
+			for _, want := range tt.wantIn {
+				assert.Contains(t, view, want)
+			}
+		})
+	}
+}
+
+// TestRenderer_ContextPanel_NoLinkedPR verifies that when a worktree has no
+// LinkedPR, the context panel shows the worktree basename, branch, and path.
+func TestRenderer_ContextPanel_NoLinkedPR(t *testing.T) {
+	tests := []struct {
+		name     string
+		worktree domain.Worktree
+		wantIn   []string
+		wantOut  []string
+	}{
+		{
+			name: "shows worktree basename as context header",
+			worktree: domain.Worktree{
+				Path:    "/tmp/feat-search",
+				Branch:  "feat/search",
+				IsClean: true,
+			},
+			wantIn: []string{"Context: feat-search"},
+		},
+		{
+			name: "shows branch",
+			worktree: domain.Worktree{
+				Path:    "/tmp/feat-search",
+				Branch:  "feat/search",
+				IsClean: true,
+			},
+			wantIn: []string{"Branch: feat/search"},
+		},
+		{
+			name: "shows path",
+			worktree: domain.Worktree{
+				Path:    "/tmp/feat-search",
+				Branch:  "feat/search",
+				IsClean: true,
+			},
+			wantIn: []string{"Path: /tmp/feat-search"},
+		},
+		{
+			name: "does not show PR-specific fields",
+			worktree: domain.Worktree{
+				Path:    "/tmp/feat-search",
+				Branch:  "feat/search",
+				IsClean: true,
+			},
+			wantOut: []string{"GH Title:", "Author: @", "Labels:"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			model := NewModel()
+			require.NotNil(t, model)
+			model.view = viewWorktrees
+			model.Worktrees = []domain.Worktree{tt.worktree}
+			model.selectedIdx = 0
+
+			view := model.View()
+
+			for _, want := range tt.wantIn {
+				assert.Contains(t, view, want)
+			}
+			for _, notWant := range tt.wantOut {
+				assert.NotContains(t, view, notWant)
+			}
+		})
+	}
+}
+
+// TestRenderer_ContextPanel_AgentCommandsAlwaysVisible verifies that the agent
+// commands [a], [c], and [s] are always shown in the worktree context panel,
+// regardless of whether a LinkedPR is present.
+func TestRenderer_ContextPanel_AgentCommandsAlwaysVisible(t *testing.T) {
+	tests := []struct {
+		name     string
+		worktree domain.Worktree
+	}{
+		{
+			name: "agent commands present with LinkedPR",
+			worktree: domain.Worktree{
+				Path:    "/tmp/feat-auth",
+				Branch:  "feat/auth",
+				IsClean: true,
+				LinkedPR: &domain.PullRequest{
+					Number: 7,
+					Title:  "Auth",
+					Author: "carol",
+					State:  "OPEN",
+				},
+			},
+		},
+		{
+			name: "agent commands present without LinkedPR",
+			worktree: domain.Worktree{
+				Path:    "/tmp/feat-search",
+				Branch:  "feat/search",
+				IsClean: true,
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			model := NewModel()
+			require.NotNil(t, model)
+			model.view = viewWorktrees
+			model.Worktrees = []domain.Worktree{tt.worktree}
+			model.selectedIdx = 0
+
+			view := model.View()
+
+			assert.Contains(t, view, "[a] Spawn Claude Code")
+			assert.Contains(t, view, "[c] Spawn Copilot")
+			assert.Contains(t, view, "[s] Open Shell in WT")
+		})
+	}
+}
+
+// TestRenderer_GHIDColumn_NoLinkedPR verifies that when a worktree has no
+// LinkedPR, the GH:ID column shows "-" (not empty string).
+func TestRenderer_GHIDColumn_NoLinkedPR(t *testing.T) {
+	tests := []struct {
+		name     string
+		worktree domain.Worktree
+	}{
+		{
+			name: "GH:ID shows dash when no PR linked (non-selected row)",
+			worktree: domain.Worktree{
+				Path:    "/tmp/wt-no-pr",
+				Branch:  "main",
+				IsClean: true,
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			model := NewModel()
+			require.NotNil(t, model)
+			model.view = viewWorktrees
+			model.Worktrees = []domain.Worktree{tt.worktree}
+			// Set selectedIdx to -1 so the row is NOT selected, ensuring we hit the
+			// non-selected branch of the rendering code.
+			model.selectedIdx = -1
+			model.width = 300
+
+			view := model.View()
+
+			// The GH:ID column should contain "-" not empty padding
+			assert.Contains(t, view, "-")
+		})
+	}
+}
+
+// TestRenderer_GHIDColumn_WithLinkedPR verifies that when a worktree has a
+// LinkedPR, the GH:ID column shows the PR number.
+func TestRenderer_GHIDColumn_WithLinkedPR(t *testing.T) {
+	tests := []struct {
+		name        string
+		worktree    domain.Worktree
+		wantPRNum   string
+	}{
+		{
+			name: "GH:ID shows PR number for linked PR (non-selected row)",
+			worktree: domain.Worktree{
+				Path:    "/tmp/feat-login",
+				Branch:  "feat/login",
+				IsClean: true,
+				LinkedPR: &domain.PullRequest{
+					Number: 1442,
+					Title:  "Login feature",
+					Author: "alice",
+					State:  "OPEN",
+				},
+			},
+			wantPRNum: "1442",
+		},
+		{
+			name: "GH:ID shows PR number for merged PR",
+			worktree: domain.Worktree{
+				Path:    "/tmp/fix-bug",
+				Branch:  "fix/bug",
+				IsClean: true,
+				LinkedPR: &domain.PullRequest{
+					Number: 55,
+					Title:  "Bug fix",
+					Author: "bob",
+					State:  "MERGED",
+				},
+			},
+			wantPRNum: "55",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			model := NewModel()
+			require.NotNil(t, model)
+			model.view = viewWorktrees
+			model.Worktrees = []domain.Worktree{tt.worktree}
+			model.selectedIdx = -1
+			model.width = 300
+
+			view := model.View()
+
+			assert.Contains(t, view, tt.wantPRNum)
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// End Phase 3 tests (renderer_test.go)
 // ---------------------------------------------------------------------------

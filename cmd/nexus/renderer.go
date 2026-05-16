@@ -134,9 +134,11 @@ func renderWorktreePanel(worktrees []domain.Worktree, selectedIdx int, theme sty
 		name := truncateStr(filepath.Base(wt.Path), 18)
 		path := truncateStr(wt.Path, pathWidth)
 		status := worktreeStatus(wt)
-		ghID := ""
+		ghID := "-"
+		var prState string
 		if wt.LinkedPR != nil {
 			ghID = fmt.Sprintf("%d", wt.LinkedPR.Number)
+			prState = wt.LinkedPR.State
 		}
 		if i == selectedIdx {
 			row := fmt.Sprintf("%-18s %-*s %-8s %-10s %-6s", name, pathWidth, path, status, "—", ghID)
@@ -146,7 +148,16 @@ func renderWorktreePanel(worktrees []domain.Worktree, selectedIdx int, theme sty
 			pathCol := fmt.Sprintf("%-*s", pathWidth, path)
 			statusCol := theme.StatusStyle(status).Width(8).Render(status)
 			updatedCol := fmt.Sprintf("%-10s", "—") // TODO: populate from git log --format=%ai
-			ghIDCol := fmt.Sprintf("%-6s", ghID)
+			ghIDRaw := fmt.Sprintf("%-6s", ghID)
+			var ghIDCol string
+			switch prState {
+			case "OPEN":
+				ghIDCol = lipgloss.NewStyle().Foreground(lipgloss.Color("#00D9FF")).Render(ghIDRaw)
+			case "MERGED", "CLOSED":
+				ghIDCol = lipgloss.NewStyle().Foreground(lipgloss.Color("#4A5568")).Render(ghIDRaw)
+			default:
+				ghIDCol = ghIDRaw
+			}
 			content.WriteString("  " + nameCol + " " + pathCol + " " + statusCol + " " + updatedCol + " " + ghIDCol)
 		}
 		content.WriteString("\n")
@@ -167,11 +178,7 @@ func renderContextPanel(view activeView, worktrees []domain.Worktree, worktreeId
 			content = "No issue selected.\nPress I to view issues."
 		} else {
 			iss := issues[issueIdx]
-			labelStrs := make([]string, len(iss.Labels))
-			for i, l := range iss.Labels {
-				labelStrs[i] = "[" + l + "]"
-			}
-			labelsStr := strings.Join(labelStrs, "")
+			labelsStr := formatLabels(iss.Labels)
 			content = fmt.Sprintf("Context: Issue #%d\n%s\n\nStatus: ● Open\nLabels: %s\n\n[g] Open in GitHub", iss.Number, iss.Title, labelsStr)
 		}
 	case viewPRs:
@@ -190,10 +197,21 @@ func renderContextPanel(view activeView, worktrees []domain.Worktree, worktreeId
 			content = "No worktree selected.\nSelect a worktree to\nview context."
 		} else {
 			wt := worktrees[worktreeIdx]
-			content = fmt.Sprintf(
-				"Context: %s\nBranch: %s\nStatus: %s\n\nAGENT COMMANDS:\n[a] Spawn Claude\n[c] Spawn Copilot",
-				filepath.Base(wt.Path), wt.Branch, worktreeStatus(wt),
-			)
+			if wt.LinkedPR != nil {
+				pr := wt.LinkedPR
+				labelsStr := formatLabels(pr.Labels)
+				titleTrunc := truncateStr(pr.Title, ctxPanelInner)
+				statusDot := lipgloss.NewStyle().Foreground(prStateColor(pr.State)).Render("●")
+				content = fmt.Sprintf(
+					"Context: PR #%d\n%s\n\nGH Title: %s\nAuthor: @%s\nStatus: %s %s\nLabels: %s\n\nAGENT COMMANDS:\n[a] Spawn Claude Code\n[c] Spawn Copilot\n[s] Open Shell in WT",
+					pr.Number, titleTrunc, pr.Title, pr.Author, statusDot, pr.State, labelsStr,
+				)
+			} else {
+				content = fmt.Sprintf(
+					"Context: %s\nBranch: %s\nPath: %s\n\nAGENT COMMANDS:\n[a] Spawn Claude Code\n[c] Spawn Copilot\n[s] Open Shell in WT",
+					filepath.Base(wt.Path), wt.Branch, wt.Path,
+				)
+			}
 		}
 	}
 	st := theme.GetStyle("context-panel").Width(ctxPanelInner + panelPaddingOverhead)
@@ -328,5 +346,28 @@ func worktreeStatus(wt domain.Worktree) string {
 		return "Idle"
 	}
 	return "Dirty"
+}
+
+// prStateColor returns the lipgloss color for a given PR state string.
+func prStateColor(state string) lipgloss.Color {
+	switch state {
+	case "OPEN":
+		return lipgloss.Color("#00D9FF")
+	case "MERGED":
+		return lipgloss.Color("#9B59B6")
+	case "CLOSED":
+		return lipgloss.Color("#E74C3C")
+	default:
+		return lipgloss.Color("#4A5568")
+	}
+}
+
+// formatLabels formats a slice of label strings into "[label1][label2]" format.
+func formatLabels(labels []string) string {
+	strs := make([]string, len(labels))
+	for i, l := range labels {
+		strs[i] = "[" + l + "]"
+	}
+	return strings.Join(strs, "")
 }
 
