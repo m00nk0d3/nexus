@@ -176,12 +176,21 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.themeIdx = (m.themeIdx + 1) % len(styles.Themes)
 			case "w", "W":
 				m.view = viewWorktrees
+				m.ctxScrollOffset = 0
 			case "i", "I":
 				m.view = viewIssues
+				m.ctxScrollOffset = 0
 			case "p", "P":
 				m.view = viewPRs
+				m.ctxScrollOffset = 0
 			case "g", "G":
 				return m, m.openInBrowserCmd()
+			case "s", "S":
+				if m.view == viewWorktrees {
+					if selected, ok := m.selectedWorktree(); ok {
+						return m, m.switchWorktreeCmd(selected.Path)
+					}
+				}
 			}
 		}
 
@@ -454,14 +463,17 @@ func (m *Model) moveDown() {
 		case viewIssues:
 			if m.selectedIssueIdx < len(m.issues)-1 {
 				m.selectedIssueIdx++
+				m.ctxScrollOffset = 0
 			}
 		case viewPRs:
 			if m.selectedPRIdx < len(m.prs)-1 {
 				m.selectedPRIdx++
+				m.ctxScrollOffset = 0
 			}
 		default:
 			if m.selectedIdx < len(m.Worktrees)-1 {
 				m.selectedIdx++
+				m.ctxScrollOffset = 0
 			}
 		}
 	}
@@ -488,14 +500,17 @@ func (m *Model) moveUp() {
 		case viewIssues:
 			if m.selectedIssueIdx > 0 {
 				m.selectedIssueIdx--
+				m.ctxScrollOffset = 0
 			}
 		case viewPRs:
 			if m.selectedPRIdx > 0 {
 				m.selectedPRIdx--
+				m.ctxScrollOffset = 0
 			}
 		default:
 			if m.selectedIdx > 0 {
 				m.selectedIdx--
+				m.ctxScrollOffset = 0
 			}
 		}
 	}

@@ -204,10 +204,9 @@ func renderContextPanel(view activeView, worktrees []domain.Worktree, worktreeId
 		} else {
 			iss := issues[issueIdx]
 			labelsStr := formatLabels(iss.Labels)
-			// Bug 3: wrap title and labels to prevent visual wrapping from
-			// outpacing clipContent's line-count, which would push the footer off screen.
 			title := wrapText(iss.Title, ctxInner)
-			labels := wrapText(labelsStr, ctxInner)
+			// "Labels: " prefix = 8 chars; wrap to remaining width to avoid re-wrap.
+			labels := wrapText(labelsStr, ctxInner-8)
 			content = fmt.Sprintf("Context: Issue #%d\n%s\n\nStatus: ● Open\nLabels: %s\n\n[g] Open in GitHub", iss.Number, title, labels)
 		}
 	case viewPRs:
@@ -224,12 +223,11 @@ func renderContextPanel(view activeView, worktrees []domain.Worktree, worktreeId
 			if body == "" {
 				body = "(no description)"
 			}
-			// Bug 3: wrap/truncate fields so visual line count matches \n count,
-			// preventing the panel from growing and pushing the footer off screen.
 			title := wrapText(pr.Title, ctxInner)
 			branch := truncateStr(pr.Branch, ctxInner-8)  // "Branch: " prefix = 8 chars
 			author := truncateStr(pr.Author, ctxInner-9)  // "Author: @" prefix = 9 chars
-			labels := wrapText(labelsStr, ctxInner)
+			// "Labels: " prefix = 8 chars; wrap to remaining width to avoid re-wrap.
+			labels := wrapText(labelsStr, ctxInner-8)
 			content = fmt.Sprintf("Context: PR #%d\n%s\n\nBranch: %s\nAuthor: @%s\nStatus: %s\nLabels: %s\n\n%s\n\n[g] Open in GitHub", pr.Number, title, branch, author, state, labels, body)
 		}
 	default: // viewWorktrees
@@ -239,8 +237,10 @@ func renderContextPanel(view activeView, worktrees []domain.Worktree, worktreeId
 			wt := worktrees[worktreeIdx]
 			if wt.LinkedPR != nil {
 				pr := wt.LinkedPR
+				// "Labels: " = 8 chars; "Author: @" = 9 chars; "GH Title: " = 10 chars
 				labelsStr := formatLabels(pr.Labels)
-				titleTrunc := truncateStr(pr.Title, ctxInner)
+				labels := wrapText(labelsStr, ctxInner-8)
+				titleTrunc := truncateStr(pr.Title, ctxInner-10) // "GH Title: " prefix = 10 chars
 				statusDot := lipgloss.NewStyle().Foreground(prStateColor(pr.State)).Render("●")
 				body := wrapText(pr.Body, ctxInner)
 				if body == "" {
@@ -248,7 +248,7 @@ func renderContextPanel(view activeView, worktrees []domain.Worktree, worktreeId
 				}
 				content = fmt.Sprintf(
 					"Context: PR #%d\n%s\n\nGH Title: %s\nAuthor: @%s\nStatus: %s %s\nLabels: %s\n\n%s\n\nAGENT COMMANDS:\n[a] Spawn Claude Code\n[c] Spawn Copilot\n[s] Open Shell in WT",
-					pr.Number, titleTrunc, pr.Title, pr.Author, statusDot, pr.State, labelsStr, body,
+					pr.Number, titleTrunc, pr.Title, pr.Author, statusDot, pr.State, labels, body,
 				)
 			} else {
 				const pathLabel = "Path: "
@@ -266,7 +266,10 @@ func renderContextPanel(view activeView, worktrees []domain.Worktree, worktreeId
 	}
 	if panelHeight > 0 {
 		content = clipContent(content, ctxScroll, panelHeight)
-		st = st.Height(panelHeight)
+		// MaxHeight(panelHeight+2): hard-cap the rendered output at panelHeight inner
+		// rows + 2 border rows. MaxHeight applies AFTER borders, so this prevents
+		// any lipgloss re-wrap from making the panel taller than the terminal allows.
+		st = st.Height(panelHeight).MaxHeight(panelHeight + 2)
 	}
 	return st.Render(content)
 }
@@ -432,12 +435,15 @@ func renderFooterBar(theme styles.Theme, date string, termWidth int, syncing boo
 	if syncStatus != "" {
 		content = left + "  " + syncStatus
 	}
+	// Truncate to termWidth so the bar never wraps to a second row on narrow terminals.
+	content = truncateStr(content, termWidth)
 
 	return theme.GetStyle("status-bar").Width(termWidth).Render(content)
 }
 
 func renderActionBar(theme styles.Theme, termWidth int) string {
-	return theme.GetStyle("status-bar").Width(termWidth).Render(actionBarHints)
+	hints := truncateStr(actionBarHints, termWidth)
+	return theme.GetStyle("status-bar").Width(termWidth).Render(hints)
 }
 
 // computeCtxInner returns the inner content width for the context panel.

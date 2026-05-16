@@ -3,9 +3,11 @@ package main
 import (
 	"errors"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/m00nk0d3/nexus/internal/domain"
 	"github.com/m00nk0d3/nexus/internal/tui/styles"
@@ -1196,3 +1198,141 @@ assert.NotContains(t, view, longPath, "raw long path must not appear; it should 
 // The truncated path must contain the ellipsis sentinel.
 assert.Contains(t, view, "Path: ")
 }
+
+// ---------------------------------------------------------------------------
+// Phase 6: context panel height-cap and scroll-reset tests
+// ---------------------------------------------------------------------------
+
+// TestRenderFull_PRWithLongBody_FitsTerminalHeight verifies that a PR with a
+// very long body does not cause the rendered output to exceed the terminal height.
+// This is a regression test for the bug where the context panel grew taller than
+// the terminal, pushing the header bar off-screen.
+func TestRenderFull_PRWithLongBody_FitsTerminalHeight(t *testing.T) {
+	const termHeight = 24
+	const termWidth = 120
+
+	// Build a body that, after word-wrapping, generates hundreds of lines.
+	longBody := strings.Repeat("This is a long line of PR body text that keeps going. ", 200)
+
+	prs := []domain.PullRequest{
+		{
+			Number: 1,
+			Title:  "My very important PR",
+			Branch: "feat/very-long-body-pr",
+			Author: "alice",
+			State:  "OPEN",
+			Labels: []string{"bug", "enhancement", "security", "breaking-change"},
+			Body:   longBody,
+		},
+	}
+
+	model := NewModel()
+	require.NotNil(t, model)
+	model.view = viewPRs
+	model.prs = prs
+	model.width = termWidth
+	model.height = termHeight
+
+	rendered := model.View()
+
+	// Count newlines — output must have at most termHeight lines.
+	lineCount := strings.Count(rendered, "\n") + 1
+	assert.LessOrEqual(t, lineCount, termHeight,
+		"rendered output (%d lines) must not exceed terminal height (%d)", lineCount, termHeight)
+}
+
+// TestRenderFull_IssueWithManyLabels_FitsTerminalHeight verifies the same height
+// constraint when viewing an issue with many labels (exercises the Labels: prefix fix).
+func TestRenderFull_IssueWithManyLabels_FitsTerminalHeight(t *testing.T) {
+	const termHeight = 24
+	const termWidth = 80
+
+	issues := []domain.Issue{
+		{
+			Number: 5,
+			Title:  "Some issue",
+			Labels: []string{"alpha", "beta", "gamma", "delta", "epsilon", "zeta", "eta", "theta"},
+		},
+	}
+
+	model := NewModel()
+	require.NotNil(t, model)
+	model.view = viewIssues
+	model.issues = issues
+	model.width = termWidth
+	model.height = termHeight
+
+	rendered := model.View()
+
+	lineCount := strings.Count(rendered, "\n") + 1
+	assert.LessOrEqual(t, lineCount, termHeight,
+		"rendered output (%d lines) must not exceed terminal height (%d)", lineCount, termHeight)
+}
+
+// TestMoveDown_ResetsCtxScrollOffset verifies that navigating the list panel
+// resets the context scroll offset so the new item's content starts at the top.
+func TestMoveDown_ResetsCtxScrollOffset(t *testing.T) {
+	model := NewModel()
+	require.NotNil(t, model)
+	model.view = viewPRs
+	model.focused = panelList
+	model.prs = []domain.PullRequest{
+		{Number: 1, Title: "PR 1", Branch: "feat/1", Author: "alice", State: "OPEN"},
+		{Number: 2, Title: "PR 2", Branch: "feat/2", Author: "bob", State: "OPEN"},
+	}
+	model.selectedPRIdx = 0
+	model.ctxScrollOffset = 5 // simulate scrolled state
+
+	model.moveDown()
+
+	assert.Equal(t, 0, model.ctxScrollOffset, "ctxScrollOffset must reset to 0 after navigating to next PR")
+	assert.Equal(t, 1, model.selectedPRIdx)
+}
+
+// TestMoveUp_ResetsCtxScrollOffset verifies that navigating up in the list panel
+// resets the context scroll offset.
+func TestMoveUp_ResetsCtxScrollOffset(t *testing.T) {
+	model := NewModel()
+	require.NotNil(t, model)
+	model.view = viewPRs
+	model.focused = panelList
+	model.prs = []domain.PullRequest{
+		{Number: 1, Title: "PR 1", Branch: "feat/1", Author: "alice", State: "OPEN"},
+		{Number: 2, Title: "PR 2", Branch: "feat/2", Author: "bob", State: "OPEN"},
+	}
+	model.selectedPRIdx = 1
+	model.ctxScrollOffset = 3 // simulate scrolled state
+
+	model.moveUp()
+
+	assert.Equal(t, 0, model.ctxScrollOffset, "ctxScrollOffset must reset to 0 after navigating to previous PR")
+	assert.Equal(t, 0, model.selectedPRIdx)
+}
+
+// TestViewSwitch_ResetsCtxScrollOffset verifies that switching views (W/I/P keys)
+// resets the context scroll offset so the new view starts from the top.
+func TestViewSwitch_ResetsCtxScrollOffset(t *testing.T) {
+	tests := []struct {
+		name    string
+		key     string
+		wantView activeView
+	}{
+		{"switch to worktrees resets scroll", "w", viewWorktrees},
+		{"switch to issues resets scroll", "i", viewIssues},
+		{"switch to PRs resets scroll", "p", viewPRs},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			model := NewModel()
+			require.NotNil(t, model)
+			model.ctxScrollOffset = 7 // simulate scrolled state
+
+			_, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(tt.key)})
+
+			assert.Equal(t, 0, model.ctxScrollOffset, "ctxScrollOffset must reset to 0 after switching view")
+			assert.Equal(t, tt.wantView, model.view)
+		})
+	}
+}
+

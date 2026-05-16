@@ -1141,3 +1141,54 @@ func TestModel_WindowSizeMsg_StoresDimensions(t *testing.T) {
 		})
 	}
 }
+
+
+// TestModelUpdate_SKeyOpensShellInWorktree verifies that pressing "s" in
+// viewWorktrees with a selected worktree triggers switchWorktreeCmd.
+func TestModelUpdate_SKeyOpensShellInWorktree(t *testing.T) {
+tests := []struct {
+name       string
+view       activeView
+worktrees  []domain.Worktree
+wantCmdNil bool
+}{
+{
+name: "s key triggers switchWorktreeCmd when in worktrees view",
+view: viewWorktrees,
+worktrees: []domain.Worktree{
+{Path: "/tmp/my-wt", Branch: "feat/my-branch", IsClean: true},
+},
+wantCmdNil: false,
+},
+{
+name:       "s key does nothing when worktree list is empty",
+view:       viewWorktrees,
+worktrees:  nil,
+wantCmdNil: true,
+},
+{
+name: "s key does nothing in issues view",
+view: viewIssues,
+worktrees: []domain.Worktree{
+{Path: "/tmp/my-wt", Branch: "feat/my-branch", IsClean: true},
+},
+wantCmdNil: true,
+},
+}
+
+for _, tt := range tests {
+t.Run(tt.name, func(t *testing.T) {
+model := NewModel()
+require.NotNil(t, model)
+model.view = tt.view
+model.Worktrees = tt.worktrees
+
+_, cmd := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'s'}})
+if tt.wantCmdNil {
+assert.Nil(t, cmd)
+} else {
+assert.NotNil(t, cmd, "expected a non-nil cmd from switchWorktreeCmd")
+}
+})
+}
+}
