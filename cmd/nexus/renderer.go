@@ -213,8 +213,12 @@ func renderIssueList(issues []domain.Issue, selectedIdx int, theme styles.Theme,
 	headerRow := fmt.Sprintf("  %-6s %-*s %-8s %s", "#", titleWidth, "TITLE", "STATUS", "LABELS")
 	content.WriteString(headerStyle.Render(headerRow))
 	content.WriteString("\n")
+	labelsWidth := listInner - titleWidth - 19 // remaining after "  <6#> <titleWidth> <8status> " prefix
+	if labelsWidth < 8 {
+		labelsWidth = 8
+	}
 	for i, issue := range issues {
-		labels := strings.Join(issue.Labels, " ")
+		labels := truncateStr(strings.Join(issue.Labels, " "), labelsWidth)
 		title := truncateStr(issue.Title, titleWidth)
 		// "Open" is hardcoded because gh issue list only returns open issues by default.
 		if i == selectedIdx {
