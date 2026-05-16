@@ -191,7 +191,12 @@ func renderContextPanel(view activeView, worktrees []domain.Worktree, worktreeId
 			if pr.IsDraft {
 				state = "DRAFT"
 			}
-			content = fmt.Sprintf("Context: PR #%d\n%s\n\nBranch: %s\nAuthor: @%s\nStatus: %s\n\n[g] Open in GitHub", pr.Number, pr.Title, pr.Branch, pr.Author, state)
+			labelsStr := formatLabels(pr.Labels)
+			body := pr.Body
+			if body == "" {
+				body = "(no description)"
+			}
+			content = fmt.Sprintf("Context: PR #%d\n%s\n\nBranch: %s\nAuthor: @%s\nStatus: %s\nLabels: %s\n\n%s\n\n[g] Open in GitHub", pr.Number, pr.Title, pr.Branch, pr.Author, state, labelsStr, body)
 		}
 	default: // viewWorktrees
 		if len(worktrees) == 0 || worktreeIdx < 0 || worktreeIdx >= len(worktrees) {
@@ -201,13 +206,15 @@ func renderContextPanel(view activeView, worktrees []domain.Worktree, worktreeId
 			if wt.LinkedPR != nil {
 				pr := wt.LinkedPR
 				labelsStr := formatLabels(pr.Labels)
-				// titleTrunc is shown as a subtitle below the header; pr.Title repeats it
-				// in full under "GH Title:" so long titles aren't silently cut off.
 				titleTrunc := truncateStr(pr.Title, ctxPanelInner)
 				statusDot := lipgloss.NewStyle().Foreground(prStateColor(pr.State)).Render("●")
+				body := pr.Body
+				if body == "" {
+					body = "(no description)"
+				}
 				content = fmt.Sprintf(
-					"Context: PR #%d\n%s\n\nGH Title: %s\nAuthor: @%s\nStatus: %s %s\nLabels: %s\n\nAGENT COMMANDS:\n[a] Spawn Claude Code\n[c] Spawn Copilot\n[s] Open Shell in WT",
-					pr.Number, titleTrunc, pr.Title, pr.Author, statusDot, pr.State, labelsStr,
+					"Context: PR #%d\n%s\n\nGH Title: %s\nAuthor: @%s\nStatus: %s %s\nLabels: %s\n\n%s\n\nAGENT COMMANDS:\n[a] Spawn Claude Code\n[c] Spawn Copilot\n[s] Open Shell in WT",
+					pr.Number, titleTrunc, pr.Title, pr.Author, statusDot, pr.State, labelsStr, body,
 				)
 			} else {
 				content = fmt.Sprintf(

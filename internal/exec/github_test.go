@@ -146,8 +146,8 @@ func TestNewPRCommand(t *testing.T) {
 
 func TestListOpenPRs(t *testing.T) {
 	twoPRsJSON := `[
-		{"number":1,"title":"Add login","headRefName":"feat/login","author":{"login":"alice"},"state":"OPEN","labels":[{"name":"enhancement"}],"isDraft":false},
-		{"number":2,"title":"WIP: refactor","headRefName":"chore/refactor","author":{"login":"bob"},"state":"OPEN","labels":[{"name":"wip"},{"name":"refactor"}],"isDraft":true}
+		{"number":1,"title":"Add login","body":"Adds login flow","headRefName":"feat/login","author":{"login":"alice"},"state":"OPEN","labels":[{"name":"enhancement"}],"isDraft":false},
+		{"number":2,"title":"WIP: refactor","body":"","headRefName":"chore/refactor","author":{"login":"bob"},"state":"OPEN","labels":[{"name":"wip"},{"name":"refactor"}],"isDraft":true}
 	]`
 
 	tests := []struct {
@@ -163,8 +163,8 @@ func TestListOpenPRs(t *testing.T) {
 			name:      "valid JSON with 2 PRs maps correctly",
 			runnerOut: twoPRsJSON,
 			wantPRs: []domain.PullRequest{
-				{Number: 1, Title: "Add login", Branch: "feat/login", Author: "alice", State: "OPEN", Labels: []string{"enhancement"}, IsDraft: false},
-				{Number: 2, Title: "WIP: refactor", Branch: "chore/refactor", Author: "bob", State: "OPEN", Labels: []string{"wip", "refactor"}, IsDraft: true},
+				{Number: 1, Title: "Add login", Body: "Adds login flow", Branch: "feat/login", Author: "alice", State: "OPEN", Labels: []string{"enhancement"}, IsDraft: false},
+				{Number: 2, Title: "WIP: refactor", Body: "", Branch: "chore/refactor", Author: "bob", State: "OPEN", Labels: []string{"wip", "refactor"}, IsDraft: true},
 			},
 		},
 		{
@@ -245,7 +245,7 @@ func TestListOpenPRs(t *testing.T) {
 }
 
 func TestGetPR(t *testing.T) {
-	validPRJSON := `{"number":42,"title":"Implement feature","headRefName":"feat/feature","author":{"login":"frank"},"state":"MERGED","labels":[{"name":"feature"}],"isDraft":false}`
+	validPRJSON := `{"number":42,"title":"Implement feature","body":"This implements the feature.","headRefName":"feat/feature","author":{"login":"frank"},"state":"MERGED","labels":[{"name":"feature"}],"isDraft":false}`
 
 	tests := []struct {
 		name        string
@@ -264,6 +264,7 @@ func TestGetPR(t *testing.T) {
 			wantPR: &domain.PullRequest{
 				Number:  42,
 				Title:   "Implement feature",
+				Body:    "This implements the feature.",
 				Branch:  "feat/feature",
 				Author:  "frank",
 				State:   "MERGED",

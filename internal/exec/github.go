@@ -90,7 +90,7 @@ func NewPRCommandWithRunner(repoPath string, runner commandRunner) *PRCommand {
 	return &PRCommand{repoPath: repoPath, runner: runner}
 }
 
-const prFields = "number,title,headRefName,author,state,labels,isDraft"
+const prFields = "number,title,body,headRefName,author,state,labels,isDraft"
 
 // ListOpenPRs returns all open pull requests via `gh pr list`.
 func (c *PRCommand) ListOpenPRs() ([]domain.PullRequest, error) {
@@ -131,6 +131,7 @@ type ghAuthor struct {
 type ghPR struct {
 	Number      int       `json:"number"`
 	Title       string    `json:"title"`
+	Body        string    `json:"body"`
 	HeadRefName string    `json:"headRefName"`
 	Author      ghAuthor  `json:"author"`
 	State       string    `json:"state"`
@@ -146,6 +147,7 @@ func ghPRToDomain(g ghPR) domain.PullRequest {
 	return domain.PullRequest{
 		Number:  g.Number,
 		Title:   g.Title,
+		Body:    g.Body,
 		Branch:  g.HeadRefName,
 		Author:  g.Author.Login,
 		State:   g.State,
