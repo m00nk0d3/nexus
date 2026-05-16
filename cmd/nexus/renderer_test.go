@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/charmbracelet/lipgloss"
 	"github.com/m00nk0d3/nexus/internal/domain"
 	"github.com/m00nk0d3/nexus/internal/tui/styles"
 	"github.com/stretchr/testify/assert"
@@ -943,8 +944,10 @@ func TestRenderer_GHIDColumn_NoLinkedPR(t *testing.T) {
 
 			view := model.View()
 
-			// The GH:ID column should contain "-" not empty padding
-			assert.Contains(t, view, "-")
+			// The GH:ID column should contain "- " (dash padded to 6 chars). We verify
+			// the worktree row is actually rendered and the column shows the placeholder.
+			assert.Contains(t, view, "wt-no-pr")
+			assert.Contains(t, view, "-     ") // "- " padded to 6 chars
 		})
 	}
 }
@@ -1008,3 +1011,25 @@ func TestRenderer_GHIDColumn_WithLinkedPR(t *testing.T) {
 // ---------------------------------------------------------------------------
 // End Phase 3 tests (renderer_test.go)
 // ---------------------------------------------------------------------------
+
+// TestPrStateColor verifies that prStateColor returns the correct lipgloss color
+// for each known PR state and a safe default for unknown states.
+func TestPrStateColor(t *testing.T) {
+	tests := []struct {
+		state     string
+		wantColor string
+	}{
+		{"OPEN", "#00D9FF"},
+		{"MERGED", "#9B59B6"},
+		{"CLOSED", "#E74C3C"},
+		{"UNKNOWN", "#4A5568"},
+		{"", "#4A5568"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.state, func(t *testing.T) {
+			got := prStateColor(tt.state)
+			assert.Equal(t, lipgloss.Color(tt.wantColor), got)
+		})
+	}
+}

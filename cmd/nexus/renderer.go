@@ -141,7 +141,11 @@ func renderWorktreePanel(worktrees []domain.Worktree, selectedIdx int, theme sty
 			prState = wt.LinkedPR.State
 		}
 		if i == selectedIdx {
-			row := fmt.Sprintf("%-18s %-*s %-8s %-10s %-6s", name, pathWidth, path, status, "—", ghID)
+			ghIDFormatted := fmt.Sprintf("%-6s", ghID)
+			if prState != "" {
+				ghIDFormatted = lipgloss.NewStyle().Foreground(prStateColor(prState)).Render(ghIDFormatted)
+			}
+			row := fmt.Sprintf("%-18s %-*s %-8s %-10s ", name, pathWidth, path, status, "—") + ghIDFormatted
 			content.WriteString(theme.GetStyle("selected-row").Width(listInner).Render("> " + row))
 		} else {
 			nameCol := fmt.Sprintf("%-18s", name)
@@ -150,12 +154,9 @@ func renderWorktreePanel(worktrees []domain.Worktree, selectedIdx int, theme sty
 			updatedCol := fmt.Sprintf("%-10s", "—") // TODO: populate from git log --format=%ai
 			ghIDRaw := fmt.Sprintf("%-6s", ghID)
 			var ghIDCol string
-			switch prState {
-			case "OPEN":
-				ghIDCol = lipgloss.NewStyle().Foreground(lipgloss.Color("#00D9FF")).Render(ghIDRaw)
-			case "MERGED", "CLOSED":
-				ghIDCol = lipgloss.NewStyle().Foreground(lipgloss.Color("#4A5568")).Render(ghIDRaw)
-			default:
+			if prState != "" {
+				ghIDCol = lipgloss.NewStyle().Foreground(prStateColor(prState)).Render(ghIDRaw)
+			} else {
 				ghIDCol = ghIDRaw
 			}
 			content.WriteString("  " + nameCol + " " + pathCol + " " + statusCol + " " + updatedCol + " " + ghIDCol)
@@ -200,6 +201,8 @@ func renderContextPanel(view activeView, worktrees []domain.Worktree, worktreeId
 			if wt.LinkedPR != nil {
 				pr := wt.LinkedPR
 				labelsStr := formatLabels(pr.Labels)
+				// titleTrunc is shown as a subtitle below the header; pr.Title repeats it
+				// in full under "GH Title:" so long titles aren't silently cut off.
 				titleTrunc := truncateStr(pr.Title, ctxPanelInner)
 				statusDot := lipgloss.NewStyle().Foreground(prStateColor(pr.State)).Render("●")
 				content = fmt.Sprintf(
