@@ -126,7 +126,7 @@ func renderWorktreePanel(worktrees []domain.Worktree, selectedIdx int, theme sty
 		status := worktreeStatus(wt)
 		ghID := ""
 		if wt.LinkedPR != nil {
-			ghID = fmt.Sprintf("%d", *wt.LinkedPR)
+			ghID = fmt.Sprintf("%d", wt.LinkedPR.Number)
 		}
 		if i == selectedIdx {
 			row := fmt.Sprintf("%-18s %-*s %-8s %-10s %-6s", name, pathWidth, path, status, "—", ghID)
