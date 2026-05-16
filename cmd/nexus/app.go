@@ -43,24 +43,38 @@ type githubSyncedMsg struct {
 // syncTickMsg triggers the next periodic GitHub sync.
 type syncTickMsg struct{}
 
+// browserOpenErrMsg carries an error from opening an issue or PR in the browser.
+type browserOpenErrMsg struct{ err error }
+
+// activeView represents the currently active main panel view.
+type activeView int
+
+const (
+	viewWorktrees activeView = iota // Shows the worktree list (default)
+	viewIssues                      // Shows the GitHub issues list
+	viewPRs                         // Shows the GitHub pull requests list
+)
+
 // Model represents the root Bubbletea model for the Nexus TUI application.
 // It manages the list of git worktrees, user interactions, and active modals.
 type Model struct {
-	Worktrees   []domain.Worktree // List of available git worktrees
-	RepoPath    string            // Path to the repository root
-	Config      *domain.Config    // Loaded application configuration
-	selectedIdx int               // Currently selected worktree index
-	activeModal tea.Model         // Currently open modal (if any)
-	Error       string            // Error message to display (if any)
-	themeIdx    int               // Index into styles.Themes for the active theme
-	activeNav   int               // Index of the active nav rail section (0=W,1=I,2=P,3=T)
-	width       int               // Terminal width in columns; 0 means use default
-	height      int               // Terminal height in rows; 0 means use default
-	prs         []domain.PullRequest // Latest synced pull requests
-	issues      []domain.Issue       // Latest synced issues
-	lastSynced  time.Time            // When the last successful GitHub sync completed
-	syncErr     error                // Error from the most recent GitHub sync attempt
-	syncing     bool                 // True while a background GitHub sync is in progress
+	Worktrees        []domain.Worktree    // List of available git worktrees
+	RepoPath         string               // Path to the repository root
+	Config           *domain.Config       // Loaded application configuration
+	selectedIdx      int                  // Currently selected worktree index
+	activeModal      tea.Model            // Currently open modal (if any)
+	Error            string               // Error message to display (if any)
+	themeIdx         int                  // Index into styles.Themes for the active theme
+	view             activeView           // Currently active main panel view
+	width            int                  // Terminal width in columns; 0 means use default
+	height           int                  // Terminal height in rows; 0 means use default
+	prs              []domain.PullRequest // Latest synced pull requests
+	issues           []domain.Issue       // Latest synced issues
+	lastSynced       time.Time            // When the last successful GitHub sync completed
+	syncErr          error                // Error from the most recent GitHub sync attempt
+	syncing          bool                 // True while a background GitHub sync is in progress
+	selectedIssueIdx int                  // Currently selected issue index
+	selectedPRIdx    int                  // Currently selected PR index
 }
 
 // NewModel creates and returns a new Model instance with all required fields initialized.
@@ -132,16 +146,47 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.activeModal = modal.NewDeleteModal(selected)
 			}
 		case tea.KeyUp:
-			if m.selectedIdx > 0 {
-				m.selectedIdx--
+			switch m.view {
+			case viewIssues:
+				if m.selectedIssueIdx > 0 {
+					m.selectedIssueIdx--
+				}
+			case viewPRs:
+				if m.selectedPRIdx > 0 {
+					m.selectedPRIdx--
+				}
+			default:
+				if m.selectedIdx > 0 {
+					m.selectedIdx--
+				}
 			}
 		case tea.KeyDown:
-			if m.selectedIdx < len(m.Worktrees)-1 {
-				m.selectedIdx++
+			switch m.view {
+			case viewIssues:
+				if m.selectedIssueIdx < len(m.issues)-1 {
+					m.selectedIssueIdx++
+				}
+			case viewPRs:
+				if m.selectedPRIdx < len(m.prs)-1 {
+					m.selectedPRIdx++
+				}
+			default:
+				if m.selectedIdx < len(m.Worktrees)-1 {
+					m.selectedIdx++
+				}
 			}
 		case tea.KeyRunes:
-			if msg.String() == "t" {
+			switch msg.String() {
+			case "t":
 				m.themeIdx = (m.themeIdx + 1) % len(styles.Themes)
+			case "w", "W":
+				m.view = viewWorktrees
+			case "i", "I":
+				m.view = viewIssues
+			case "p", "P":
+				m.view = viewPRs
+			case "g", "G":
+				return m, m.openInBrowserCmd()
 			}
 		}
 
@@ -174,6 +219,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
+	case browserOpenErrMsg:
+		if msg.err != nil {
+			m.Error = fmt.Sprintf("Failed to open in browser: %v", msg.err)
+		}
+
 	case githubSyncedMsg:
 		m.syncing = false
 		m.syncErr = msg.err
@@ -181,6 +231,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.prs = msg.prs
 			m.issues = msg.issues
 			m.lastSynced = msg.syncedAt
+			// Clamp per-view selection indices after a sync in case the list shrank.
+			m.clampIssueIdx()
+			m.clampPRIdx()
 		}
 		// On error, m.prs and m.issues intentionally retain their previous values
 		// so the UI continues to show the last known good data.
@@ -207,7 +260,7 @@ func (m *Model) View() string {
 	if m.activeModal != nil {
 		baseView = m.activeModal.View()
 	} else {
-		baseView = renderFull(m.Worktrees, m.selectedIdx, m.RepoPath, m.themeIdx, m.activeNav, m.width, m.height, m.syncing, m.lastSynced, m.syncErr)
+		baseView = renderFull(m.Worktrees, m.selectedIdx, m.RepoPath, m.themeIdx, m.view, m.width, m.height, m.syncing, m.lastSynced, m.syncErr, m.issues, m.selectedIssueIdx, m.prs, m.selectedPRIdx)
 	}
 
 	if m.Error == "" {
@@ -215,6 +268,29 @@ func (m *Model) View() string {
 	}
 
 	return fmt.Sprintf("Error: %s\n\n%s", m.Error, baseView)
+}
+
+// openInBrowserCmd returns a Cmd that opens the selected issue or PR in the browser
+// using the gh CLI. Returns nil when in viewWorktrees or when the relevant list is empty.
+func (m *Model) openInBrowserCmd() tea.Cmd {
+	switch m.view {
+	case viewIssues:
+		if len(m.issues) == 0 || m.selectedIssueIdx >= len(m.issues) {
+			return nil
+		}
+		num := m.issues[m.selectedIssueIdx].Number
+		cmd := exec.Command("gh", "issue", "view", fmt.Sprintf("%d", num), "--web")
+		return tea.ExecProcess(cmd, func(err error) tea.Msg { return browserOpenErrMsg{err: err} })
+	case viewPRs:
+		if len(m.prs) == 0 || m.selectedPRIdx >= len(m.prs) {
+			return nil
+		}
+		num := m.prs[m.selectedPRIdx].Number
+		cmd := exec.Command("gh", "pr", "view", fmt.Sprintf("%d", num), "--web")
+		return tea.ExecProcess(cmd, func(err error) tea.Msg { return browserOpenErrMsg{err: err} })
+	default:
+		return nil
+	}
 }
 
 // fetchIssuesCmd returns a Cmd that fetches open GitHub issues in the background,
@@ -341,5 +417,25 @@ func (m *Model) clampSelectedIdx() {
 
 	if m.selectedIdx >= len(m.Worktrees) {
 		m.selectedIdx = len(m.Worktrees) - 1
+	}
+}
+
+func (m *Model) clampIssueIdx() {
+	if len(m.issues) == 0 {
+		m.selectedIssueIdx = 0
+		return
+	}
+	if m.selectedIssueIdx >= len(m.issues) {
+		m.selectedIssueIdx = len(m.issues) - 1
+	}
+}
+
+func (m *Model) clampPRIdx() {
+	if len(m.prs) == 0 {
+		m.selectedPRIdx = 0
+		return
+	}
+	if m.selectedPRIdx >= len(m.prs) {
+		m.selectedPRIdx = len(m.prs) - 1
 	}
 }
