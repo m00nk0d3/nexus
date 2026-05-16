@@ -198,7 +198,7 @@ func renderContextPanel(view activeView, worktrees []domain.Worktree, worktreeId
 				state = "DRAFT"
 			}
 			labelsStr := formatLabels(pr.Labels)
-			body := pr.Body
+			body := wrapText(pr.Body, ctxPanelInner)
 			if body == "" {
 				body = "(no description)"
 			}
@@ -214,7 +214,7 @@ func renderContextPanel(view activeView, worktrees []domain.Worktree, worktreeId
 				labelsStr := formatLabels(pr.Labels)
 				titleTrunc := truncateStr(pr.Title, ctxPanelInner)
 				statusDot := lipgloss.NewStyle().Foreground(prStateColor(pr.State)).Render("●")
-				body := pr.Body
+				body := wrapText(pr.Body, ctxPanelInner)
 				if body == "" {
 					body = "(no description)"
 				}
@@ -371,7 +371,64 @@ func renderActionBar(theme styles.Theme, termWidth int) string {
 	return theme.GetStyle("status-bar").Width(termWidth).Render(actionBarHints)
 }
 
-// truncateStr clips s to at most n runes, adding "…" if truncated.
+// wrapText word-wraps s to at most width runes per line.
+// Existing newlines are preserved; each segment is wrapped independently.
+// If width <= 0 the string is returned unchanged.
+func wrapText(s string, width int) string {
+	if width <= 0 {
+		return s
+	}
+	var out strings.Builder
+	for i, seg := range strings.Split(s, "\n") {
+		if i > 0 {
+			out.WriteByte('\n')
+		}
+		out.WriteString(wrapLine(seg, width))
+	}
+	return out.String()
+}
+
+// wrapLine wraps a single newline-free string at word boundaries.
+// Falls back to a hard break when a word exceeds width.
+func wrapLine(s string, width int) string {
+	runes := []rune(s)
+	if len(runes) <= width {
+		return s
+	}
+	var out strings.Builder
+	for len(runes) > width {
+		// Clean break: the character right after width is a space, so the
+		// first `width` runes form a complete word boundary.
+		if runes[width] == ' ' {
+			out.WriteString(string(runes[:width]))
+			out.WriteByte('\n')
+			runes = runes[width+1:]
+			continue
+		}
+		// Find the last space within the first `width` runes.
+		breakAt := -1
+		for i := width - 1; i >= 0; i-- {
+			if runes[i] == ' ' {
+				breakAt = i
+				break
+			}
+		}
+		if breakAt <= 0 {
+			// No space found — hard break at width.
+			out.WriteString(string(runes[:width]))
+			out.WriteByte('\n')
+			runes = runes[width:]
+		} else {
+			out.WriteString(string(runes[:breakAt]))
+			out.WriteByte('\n')
+			runes = runes[breakAt+1:]
+		}
+	}
+	out.WriteString(string(runes))
+	return out.String()
+}
+
+
 func truncateStr(s string, n int) string {
 	runes := []rune(s)
 	if len(runes) <= n {

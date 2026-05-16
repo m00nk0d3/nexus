@@ -1093,6 +1093,65 @@ func TestRenderFull_FooterContainsTabAndJKHints(t *testing.T) {
 // End Phase 4 tests (renderer_test.go)
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Phase 5: wrapText — prevent context panel from stretching vertically
+// ---------------------------------------------------------------------------
+
+// TestWrapText verifies that wrapText breaks long lines at word boundaries,
+// hard-breaks words longer than the width, and preserves existing newlines.
+func TestWrapText(t *testing.T) {
+	tests := []struct {
+		name    string
+		input   string
+		width   int
+		wantOut string
+	}{
+		{
+			name:    "short line unchanged",
+			input:   "hello world",
+			width:   50,
+			wantOut: "hello world",
+		},
+		{
+			name:    "long line breaks at word boundary",
+			input:   "one two three four five six seven eight nine ten eleven",
+			width:   20,
+			wantOut: "one two three four\nfive six seven eight\nnine ten eleven",
+		},
+		{
+			name:    "single word longer than width gets hard-broken",
+			input:   "abcdefghijklmnopqrstuvwxyz",
+			width:   10,
+			wantOut: "abcdefghij\nklmnopqrst\nuvwxyz",
+		},
+		{
+			name:    "existing newlines are preserved and each segment wrapped",
+			input:   "line one is short\nthis line is much much much much much much much longer than the limit",
+			width:   20,
+			wantOut: "line one is short\nthis line is much\nmuch much much much\nmuch much longer\nthan the limit",
+		},
+		{
+			name:    "zero width returns input unchanged",
+			input:   "some content",
+			width:   0,
+			wantOut: "some content",
+		},
+		{
+			name:    "empty string",
+			input:   "",
+			width:   10,
+			wantOut: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := wrapText(tt.input, tt.width)
+			assert.Equal(t, tt.wantOut, got)
+		})
+	}
+}
+
 func TestPrStateColor(t *testing.T) {
 	tests := []struct {
 		state     string
