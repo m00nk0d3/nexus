@@ -720,6 +720,7 @@ func TestModel_IssueNavigation(t *testing.T) {
 			require.NotNil(t, model)
 			model.issues = issues
 			model.view = viewIssues
+			model.focused = panelList
 			model.selectedIssueIdx = tt.initialIssueIdx
 
 			updated, _ := model.Update(tea.KeyMsg{Type: tt.keyType})
@@ -784,6 +785,7 @@ func TestModel_PRNavigation(t *testing.T) {
 			require.NotNil(t, model)
 			model.prs = prs
 			model.view = viewPRs
+			model.focused = panelList
 			model.selectedPRIdx = tt.initialPRIdx
 
 			updated, _ := model.Update(tea.KeyMsg{Type: tt.keyType})
@@ -957,7 +959,151 @@ func TestModel_BrowserOpenErrMsg_NilErrorNoChange(t *testing.T) {
 	assert.Empty(t, m.Error)
 }
 
-func TestModel_WindowSizeMsg_StoresTerminalWidth(t *testing.T) {
+// ---------------------------------------------------------------------------
+// Phase 4: Panel focus & j/k navigation tests
+// ---------------------------------------------------------------------------
+
+// TestModel_DefaultFocus_IsNavPanel verifies that a new model starts with
+// the nav panel focused (panelNav is the zero value).
+func TestModel_DefaultFocus_IsNavPanel(t *testing.T) {
+	model := NewModel()
+	require.NotNil(t, model)
+	assert.Equal(t, panelNav, model.focused)
+}
+
+// TestModel_Tab_CyclesFocusThroughPanels verifies that Tab cycles focus
+// left to right: nav → list → ctx → nav.
+func TestModel_Tab_CyclesFocusThroughPanels(t *testing.T) {
+	tests := []struct {
+		name         string
+		initialFocus focusedPanel
+		wantFocus    focusedPanel
+	}{
+		{name: "Tab from nav focuses list", initialFocus: panelNav, wantFocus: panelList},
+		{name: "Tab from list focuses ctx", initialFocus: panelList, wantFocus: panelCtx},
+		{name: "Tab from ctx wraps to nav", initialFocus: panelCtx, wantFocus: panelNav},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			model := NewModel()
+			require.NotNil(t, model)
+			model.focused = tt.initialFocus
+
+			updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyTab})
+			m, ok := updated.(*Model)
+			require.True(t, ok)
+
+			assert.Equal(t, tt.wantFocus, m.focused)
+		})
+	}
+}
+
+// TestModel_JK_ListFocused_NavigatesWorktrees verifies that j/k navigate
+// the worktree list when the list panel is focused.
+func TestModel_JK_ListFocused_NavigatesWorktrees(t *testing.T) {
+	worktrees := []domain.Worktree{
+		{Path: "/wt/a"},
+		{Path: "/wt/b"},
+		{Path: "/wt/c"},
+	}
+
+	tests := []struct {
+		name       string
+		key        rune
+		initialIdx int
+		wantIdx    int
+	}{
+		{name: "j moves selection down", key: 'j', initialIdx: 0, wantIdx: 1},
+		{name: "k moves selection up", key: 'k', initialIdx: 1, wantIdx: 0},
+		{name: "j at bottom stays", key: 'j', initialIdx: 2, wantIdx: 2},
+		{name: "k at top stays", key: 'k', initialIdx: 0, wantIdx: 0},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			model := NewModel()
+			require.NotNil(t, model)
+			model.Worktrees = worktrees
+			model.selectedIdx = tt.initialIdx
+			model.focused = panelList
+
+			updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{tt.key}})
+			m, ok := updated.(*Model)
+			require.True(t, ok)
+
+			assert.Equal(t, tt.wantIdx, m.selectedIdx)
+		})
+	}
+}
+
+// TestModel_JK_NavFocused_ChangesView verifies that j/k cycle through views
+// when the nav panel is focused.
+func TestModel_JK_NavFocused_ChangesView(t *testing.T) {
+	tests := []struct {
+		name        string
+		key         rune
+		initialView activeView
+		wantView    activeView
+	}{
+		{name: "j from worktrees → issues", key: 'j', initialView: viewWorktrees, wantView: viewIssues},
+		{name: "j from issues → PRs", key: 'j', initialView: viewIssues, wantView: viewPRs},
+		{name: "j from PRs wraps → worktrees", key: 'j', initialView: viewPRs, wantView: viewWorktrees},
+		{name: "k from PRs → issues", key: 'k', initialView: viewPRs, wantView: viewIssues},
+		{name: "k from issues → worktrees", key: 'k', initialView: viewIssues, wantView: viewWorktrees},
+		{name: "k from worktrees wraps → PRs", key: 'k', initialView: viewWorktrees, wantView: viewPRs},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			model := NewModel()
+			require.NotNil(t, model)
+			model.view = tt.initialView
+			model.focused = panelNav
+
+			updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{tt.key}})
+			m, ok := updated.(*Model)
+			require.True(t, ok)
+
+			assert.Equal(t, tt.wantView, m.view)
+		})
+	}
+}
+
+// TestModel_JK_CtxFocused_ChangesScrollOffset verifies that j/k change the
+// context panel scroll offset when the ctx panel is focused.
+func TestModel_JK_CtxFocused_ChangesScrollOffset(t *testing.T) {
+	tests := []struct {
+		name          string
+		key           rune
+		initialOffset int
+		wantOffset    int
+	}{
+		{name: "j increments offset", key: 'j', initialOffset: 0, wantOffset: 1},
+		{name: "j increments from non-zero", key: 'j', initialOffset: 3, wantOffset: 4},
+		{name: "k decrements offset", key: 'k', initialOffset: 2, wantOffset: 1},
+		{name: "k at zero stays at zero", key: 'k', initialOffset: 0, wantOffset: 0},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			model := NewModel()
+			require.NotNil(t, model)
+			model.focused = panelCtx
+			model.ctxScrollOffset = tt.initialOffset
+
+			updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{tt.key}})
+			m, ok := updated.(*Model)
+			require.True(t, ok)
+
+			assert.Equal(t, tt.wantOffset, m.ctxScrollOffset)
+		})
+	}
+}
+
+// TestModel_WindowSizeMsg_StoresDimensions verifies that WindowSizeMsg updates
+// width and height fields on the model.
+func TestModel_WindowSizeMsg_StoresDimensions(t *testing.T) {
 	tests := []struct {
 		name       string
 		msgWidth   int
@@ -994,4 +1140,55 @@ func TestModel_WindowSizeMsg_StoresTerminalWidth(t *testing.T) {
 			assert.Equal(t, tt.wantHeight, m.height)
 		})
 	}
+}
+
+
+// TestModelUpdate_SKeyOpensShellInWorktree verifies that pressing "s" in
+// viewWorktrees with a selected worktree triggers switchWorktreeCmd.
+func TestModelUpdate_SKeyOpensShellInWorktree(t *testing.T) {
+tests := []struct {
+name       string
+view       activeView
+worktrees  []domain.Worktree
+wantCmdNil bool
+}{
+{
+name: "s key triggers switchWorktreeCmd when in worktrees view",
+view: viewWorktrees,
+worktrees: []domain.Worktree{
+{Path: "/tmp/my-wt", Branch: "feat/my-branch", IsClean: true},
+},
+wantCmdNil: false,
+},
+{
+name:       "s key does nothing when worktree list is empty",
+view:       viewWorktrees,
+worktrees:  nil,
+wantCmdNil: true,
+},
+{
+name: "s key does nothing in issues view",
+view: viewIssues,
+worktrees: []domain.Worktree{
+{Path: "/tmp/my-wt", Branch: "feat/my-branch", IsClean: true},
+},
+wantCmdNil: true,
+},
+}
+
+for _, tt := range tests {
+t.Run(tt.name, func(t *testing.T) {
+model := NewModel()
+require.NotNil(t, model)
+model.view = tt.view
+model.Worktrees = tt.worktrees
+
+_, cmd := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'s'}})
+if tt.wantCmdNil {
+assert.Nil(t, cmd)
+} else {
+assert.NotNil(t, cmd, "expected a non-nil cmd from switchWorktreeCmd")
+}
+})
+}
 }

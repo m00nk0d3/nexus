@@ -55,6 +55,16 @@ const (
 	viewPRs                         // Shows the GitHub pull requests list
 )
 
+// focusedPanel identifies which panel currently has keyboard focus.
+type focusedPanel int
+
+const (
+	panelNav   focusedPanel = iota // Left navigation rail (default focus)
+	panelList                      // Main content list
+	panelCtx                       // Right context panel
+	panelCount                     // Sentinel — used for modular cycling via (p+1)%panelCount
+)
+
 // Model represents the root Bubbletea model for the Nexus TUI application.
 // It manages the list of git worktrees, user interactions, and active modals.
 type Model struct {
@@ -75,6 +85,8 @@ type Model struct {
 	syncing          bool                 // True while a background GitHub sync is in progress
 	selectedIssueIdx int                  // Currently selected issue index
 	selectedPRIdx    int                  // Currently selected PR index
+	focused          focusedPanel         // Which panel currently has keyboard focus
+	ctxScrollOffset  int                  // Scroll position within the context panel
 }
 
 // NewModel creates and returns a new Model instance with all required fields initialized.
@@ -132,6 +144,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		switch msg.Type {
+		case tea.KeyTab:
+			m.focused = (m.focused + 1) % panelCount
+			return m, nil
 		case tea.KeyEnter:
 			if selected, ok := m.selectedWorktree(); ok {
 				return m, m.switchWorktreeCmd(selected.Path)
@@ -146,47 +161,36 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.activeModal = modal.NewDeleteModal(selected)
 			}
 		case tea.KeyUp:
-			switch m.view {
-			case viewIssues:
-				if m.selectedIssueIdx > 0 {
-					m.selectedIssueIdx--
-				}
-			case viewPRs:
-				if m.selectedPRIdx > 0 {
-					m.selectedPRIdx--
-				}
-			default:
-				if m.selectedIdx > 0 {
-					m.selectedIdx--
-				}
-			}
+			m.moveUp()
 		case tea.KeyDown:
-			switch m.view {
-			case viewIssues:
-				if m.selectedIssueIdx < len(m.issues)-1 {
-					m.selectedIssueIdx++
-				}
-			case viewPRs:
-				if m.selectedPRIdx < len(m.prs)-1 {
-					m.selectedPRIdx++
-				}
-			default:
-				if m.selectedIdx < len(m.Worktrees)-1 {
-					m.selectedIdx++
-				}
-			}
+			m.moveDown()
 		case tea.KeyRunes:
 			switch msg.String() {
+			case "j":
+				m.moveDown()
+				return m, nil
+			case "k":
+				m.moveUp()
+				return m, nil
 			case "t":
 				m.themeIdx = (m.themeIdx + 1) % len(styles.Themes)
 			case "w", "W":
 				m.view = viewWorktrees
+				m.ctxScrollOffset = 0
 			case "i", "I":
 				m.view = viewIssues
+				m.ctxScrollOffset = 0
 			case "p", "P":
 				m.view = viewPRs
+				m.ctxScrollOffset = 0
 			case "g", "G":
 				return m, m.openInBrowserCmd()
+			case "s", "S":
+				if m.view == viewWorktrees {
+					if selected, ok := m.selectedWorktree(); ok {
+						return m, m.switchWorktreeCmd(selected.Path)
+					}
+				}
 			}
 		}
 
@@ -260,7 +264,7 @@ func (m *Model) View() string {
 	if m.activeModal != nil {
 		baseView = m.activeModal.View()
 	} else {
-		baseView = renderFull(m.Worktrees, m.selectedIdx, m.RepoPath, m.themeIdx, m.view, m.width, m.height, m.syncing, m.lastSynced, m.syncErr, m.issues, m.selectedIssueIdx, m.prs, m.selectedPRIdx)
+		baseView = renderFull(m.Worktrees, m.selectedIdx, m.RepoPath, m.themeIdx, m.view, m.width, m.height, m.syncing, m.lastSynced, m.syncErr, m.issues, m.selectedIssueIdx, m.prs, m.selectedPRIdx, m.focused, m.ctxScrollOffset)
 	}
 
 	if m.Error == "" {
@@ -437,5 +441,77 @@ func (m *Model) clampPRIdx() {
 	}
 	if m.selectedPRIdx >= len(m.prs) {
 		m.selectedPRIdx = len(m.prs) - 1
+	}
+}
+
+// moveDown advances the selection within the currently focused panel.
+// Nav panel: cycles the active view forward.
+// Ctx panel: scrolls the context content down.
+// List panel (default): moves the item cursor down.
+func (m *Model) moveDown() {
+	switch m.focused {
+	case panelNav:
+		n := int(m.view) + 1
+		if n > int(viewPRs) {
+			n = int(viewWorktrees)
+		}
+		m.view = activeView(n)
+	case panelCtx:
+		m.ctxScrollOffset++
+	default: // panelList
+		switch m.view {
+		case viewIssues:
+			if m.selectedIssueIdx < len(m.issues)-1 {
+				m.selectedIssueIdx++
+				m.ctxScrollOffset = 0
+			}
+		case viewPRs:
+			if m.selectedPRIdx < len(m.prs)-1 {
+				m.selectedPRIdx++
+				m.ctxScrollOffset = 0
+			}
+		default:
+			if m.selectedIdx < len(m.Worktrees)-1 {
+				m.selectedIdx++
+				m.ctxScrollOffset = 0
+			}
+		}
+	}
+}
+
+// moveUp retreats the selection within the currently focused panel.
+// Nav panel: cycles the active view backward.
+// Ctx panel: scrolls the context content up.
+// List panel (default): moves the item cursor up.
+func (m *Model) moveUp() {
+	switch m.focused {
+	case panelNav:
+		n := int(m.view) - 1
+		if n < int(viewWorktrees) {
+			n = int(viewPRs)
+		}
+		m.view = activeView(n)
+	case panelCtx:
+		if m.ctxScrollOffset > 0 {
+			m.ctxScrollOffset--
+		}
+	default: // panelList
+		switch m.view {
+		case viewIssues:
+			if m.selectedIssueIdx > 0 {
+				m.selectedIssueIdx--
+				m.ctxScrollOffset = 0
+			}
+		case viewPRs:
+			if m.selectedPRIdx > 0 {
+				m.selectedPRIdx--
+				m.ctxScrollOffset = 0
+			}
+		default:
+			if m.selectedIdx > 0 {
+				m.selectedIdx--
+				m.ctxScrollOffset = 0
+			}
+		}
 	}
 }

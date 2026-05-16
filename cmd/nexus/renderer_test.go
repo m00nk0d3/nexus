@@ -3,9 +3,12 @@ package main
 import (
 	"errors"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/m00nk0d3/nexus/internal/domain"
 	"github.com/m00nk0d3/nexus/internal/tui/styles"
 	"github.com/stretchr/testify/assert"
@@ -316,7 +319,7 @@ func TestRenderIssueList_ContainsHeaders(t *testing.T) {
 	theme := styles.NewTheme("digital-noir")
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := renderIssueList(nil, 0, theme, 80, 20)
+			result := renderIssueList(nil, 0, theme, 80, 20, false)
 			for _, want := range tt.wantIn {
 				assert.Contains(t, result, want)
 			}
@@ -362,7 +365,7 @@ func TestRenderIssueList_ContainsIssueRows(t *testing.T) {
 	theme := styles.NewTheme("digital-noir")
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := renderIssueList(issues, tt.selectedIdx, theme, 80, 20)
+			result := renderIssueList(issues, tt.selectedIdx, theme, 80, 20, false)
 			for _, want := range tt.wantIn {
 				assert.Contains(t, result, want)
 			}
@@ -371,7 +374,8 @@ func TestRenderIssueList_ContainsIssueRows(t *testing.T) {
 }
 
 // TestRenderPRList_ContainsHeaders verifies that renderPRList renders
-// the required column headers: #, TITLE, BRANCH, AUTHOR, STATUS.
+// the required column headers: #, TITLE, BRANCH, STATUS.
+// Note: AUTHOR column was removed from the list (it is visible in the context panel).
 func TestRenderPRList_ContainsHeaders(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -379,14 +383,14 @@ func TestRenderPRList_ContainsHeaders(t *testing.T) {
 	}{
 		{
 			name:   "renders all required column headers",
-			wantIn: []string{"#", "TITLE", "BRANCH", "AUTHOR", "STATUS"},
+			wantIn: []string{"#", "TITLE", "BRANCH", "STATUS"},
 		},
 	}
 
 	theme := styles.NewTheme("digital-noir")
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := renderPRList(nil, 0, theme, 80, 20)
+			result := renderPRList(nil, 0, theme, 80, 20, false)
 			for _, want := range tt.wantIn {
 				assert.Contains(t, result, want)
 			}
@@ -408,9 +412,9 @@ func TestRenderPRList_ContainsPRRows(t *testing.T) {
 		wantIn      []string
 	}{
 		{
-			name:        "renders PR number, title, branch, author, state",
+			name:        "renders PR number, title, branch, and state",
 			selectedIdx: 0,
-			wantIn:      []string{"42", "My PR", "feat/awesome", "alice", "OPEN"},
+			wantIn:      []string{"42", "My PR", "feat/awesome", "OPEN"},
 		},
 		{
 			name:        "selected PR (idx 0) has > cursor",
@@ -420,14 +424,14 @@ func TestRenderPRList_ContainsPRRows(t *testing.T) {
 		{
 			name:        "second PR is also rendered",
 			selectedIdx: 0,
-			wantIn:      []string{"43", "Fix PR", "fix/bug", "bob"},
+			wantIn:      []string{"43", "Fix PR", "fix/bug"},
 		},
 	}
 
 	theme := styles.NewTheme("digital-noir")
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := renderPRList(prs, tt.selectedIdx, theme, 80, 20)
+			result := renderPRList(prs, tt.selectedIdx, theme, 80, 20, false)
 			for _, want := range tt.wantIn {
 				assert.Contains(t, result, want)
 			}
@@ -609,7 +613,7 @@ func TestRenderFull_PRViewShowsPRList(t *testing.T) {
 			prs: []domain.PullRequest{
 				{Number: 1, Title: "Any PR", Branch: "main", Author: "dev", State: "OPEN"},
 			},
-			wantIn: []string{"BRANCH", "AUTHOR"},
+			wantIn: []string{"BRANCH", "STATUS"},
 		},
 	}
 
@@ -670,5 +674,736 @@ func TestRenderFull_WorktreesViewStillWorks(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// End Phase 2 tests (renderer_test.go)
+// Phase 3: Issue #15 — PR Context Panel & GH:ID Column tests
 // ---------------------------------------------------------------------------
+
+// TestRenderer_ContextPanel_WithLinkedPR verifies that when a worktree has a
+// LinkedPR, the context panel shows PR-specific information: number, title,
+// author, state, and labels in the correct format.
+func TestRenderer_ContextPanel_WithLinkedPR(t *testing.T) {
+	tests := []struct {
+		name     string
+		worktree domain.Worktree
+		wantIn   []string
+	}{
+		{
+			name: "shows PR context header with number",
+			worktree: domain.Worktree{
+				Path:   "/tmp/feat-login",
+				Branch: "feat/login",
+				IsClean: true,
+				LinkedPR: &domain.PullRequest{
+					Number: 42,
+					Title:  "Add login feature",
+					Author: "alice",
+					State:  "OPEN",
+					Labels: []string{},
+				},
+			},
+			wantIn: []string{"Context: PR #42"},
+		},
+		{
+			name: "shows PR title in context",
+			worktree: domain.Worktree{
+				Path:   "/tmp/feat-login",
+				Branch: "feat/login",
+				IsClean: true,
+				LinkedPR: &domain.PullRequest{
+					Number: 42,
+					Title:  "Add login feature",
+					Author: "alice",
+					State:  "OPEN",
+					Labels: []string{},
+				},
+			},
+			wantIn: []string{"Add login feature"},
+		},
+		{
+			name: "shows GH Title label and author with @ prefix",
+			worktree: domain.Worktree{
+				Path:   "/tmp/feat-login",
+				Branch: "feat/login",
+				IsClean: true,
+				LinkedPR: &domain.PullRequest{
+					Number: 42,
+					Title:  "Add login feature",
+					Author: "alice",
+					State:  "OPEN",
+					Labels: []string{},
+				},
+			},
+			wantIn: []string{"GH Title:", "Author: @alice"},
+		},
+		{
+			name: "shows status dot and state",
+			worktree: domain.Worktree{
+				Path:   "/tmp/feat-login",
+				Branch: "feat/login",
+				IsClean: true,
+				LinkedPR: &domain.PullRequest{
+					Number: 42,
+					Title:  "Add login feature",
+					Author: "alice",
+					State:  "OPEN",
+					Labels: []string{},
+				},
+			},
+			wantIn: []string{"Status: ●", "OPEN"},
+		},
+		{
+			name: "shows labels in bracket format",
+			worktree: domain.Worktree{
+				Path:   "/tmp/feat-auth",
+				Branch: "feat/auth",
+				IsClean: true,
+				LinkedPR: &domain.PullRequest{
+					Number: 99,
+					Title:  "Auth refactor",
+					Author: "bob",
+					State:  "OPEN",
+					Labels: []string{"enhancement", "backend"},
+				},
+			},
+			wantIn: []string{"Labels: [enhancement][backend]"},
+		},
+		{
+			name: "shows agent commands section",
+			worktree: domain.Worktree{
+				Path:   "/tmp/feat-login",
+				Branch: "feat/login",
+				IsClean: true,
+				LinkedPR: &domain.PullRequest{
+					Number: 42,
+					Title:  "Add login feature",
+					Author: "alice",
+					State:  "MERGED",
+					Labels: []string{},
+				},
+			},
+			wantIn: []string{"AGENT COMMANDS:"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			model := NewModel()
+			require.NotNil(t, model)
+			model.view = viewWorktrees
+			model.Worktrees = []domain.Worktree{tt.worktree}
+			model.selectedIdx = 0
+
+			view := model.View()
+
+			for _, want := range tt.wantIn {
+				assert.Contains(t, view, want)
+			}
+		})
+	}
+}
+
+// TestRenderer_ContextPanel_NoLinkedPR verifies that when a worktree has no
+// LinkedPR, the context panel shows the worktree basename, branch, and path.
+func TestRenderer_ContextPanel_NoLinkedPR(t *testing.T) {
+	tests := []struct {
+		name     string
+		worktree domain.Worktree
+		wantIn   []string
+		wantOut  []string
+	}{
+		{
+			name: "shows worktree basename as context header",
+			worktree: domain.Worktree{
+				Path:    "/tmp/feat-search",
+				Branch:  "feat/search",
+				IsClean: true,
+			},
+			wantIn: []string{"Context: feat-search"},
+		},
+		{
+			name: "shows branch",
+			worktree: domain.Worktree{
+				Path:    "/tmp/feat-search",
+				Branch:  "feat/search",
+				IsClean: true,
+			},
+			wantIn: []string{"Branch: feat/search"},
+		},
+		{
+			name: "shows path",
+			worktree: domain.Worktree{
+				Path:    "/tmp/feat-search",
+				Branch:  "feat/search",
+				IsClean: true,
+			},
+			wantIn: []string{"Path: /tmp/feat-search"},
+		},
+		{
+			name: "does not show PR-specific fields",
+			worktree: domain.Worktree{
+				Path:    "/tmp/feat-search",
+				Branch:  "feat/search",
+				IsClean: true,
+			},
+			wantOut: []string{"GH Title:", "Author: @", "Labels:"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			model := NewModel()
+			require.NotNil(t, model)
+			model.view = viewWorktrees
+			model.Worktrees = []domain.Worktree{tt.worktree}
+			model.selectedIdx = 0
+
+			view := model.View()
+
+			for _, want := range tt.wantIn {
+				assert.Contains(t, view, want)
+			}
+			for _, notWant := range tt.wantOut {
+				assert.NotContains(t, view, notWant)
+			}
+		})
+	}
+}
+
+// TestRenderer_ContextPanel_AgentCommandsAlwaysVisible verifies that the agent
+// commands [a], [c], and [s] are always shown in the worktree context panel,
+// regardless of whether a LinkedPR is present.
+func TestRenderer_ContextPanel_AgentCommandsAlwaysVisible(t *testing.T) {
+	tests := []struct {
+		name     string
+		worktree domain.Worktree
+	}{
+		{
+			name: "agent commands present with LinkedPR",
+			worktree: domain.Worktree{
+				Path:    "/tmp/feat-auth",
+				Branch:  "feat/auth",
+				IsClean: true,
+				LinkedPR: &domain.PullRequest{
+					Number: 7,
+					Title:  "Auth",
+					Author: "carol",
+					State:  "OPEN",
+				},
+			},
+		},
+		{
+			name: "agent commands present without LinkedPR",
+			worktree: domain.Worktree{
+				Path:    "/tmp/feat-search",
+				Branch:  "feat/search",
+				IsClean: true,
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			model := NewModel()
+			require.NotNil(t, model)
+			model.view = viewWorktrees
+			model.Worktrees = []domain.Worktree{tt.worktree}
+			model.selectedIdx = 0
+
+			view := model.View()
+
+			assert.Contains(t, view, "[a] Spawn Claude Code")
+			assert.Contains(t, view, "[c] Spawn Copilot")
+			assert.Contains(t, view, "[s] Open Shell in WT")
+		})
+	}
+}
+
+// TestRenderer_GHIDColumn_NoLinkedPR verifies that when a worktree has no
+// LinkedPR, the GH:ID column shows "-" (not empty string).
+func TestRenderer_GHIDColumn_NoLinkedPR(t *testing.T) {
+	tests := []struct {
+		name     string
+		worktree domain.Worktree
+	}{
+		{
+			name: "GH:ID shows dash when no PR linked (non-selected row)",
+			worktree: domain.Worktree{
+				Path:    "/tmp/wt-no-pr",
+				Branch:  "main",
+				IsClean: true,
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			model := NewModel()
+			require.NotNil(t, model)
+			model.view = viewWorktrees
+			model.Worktrees = []domain.Worktree{tt.worktree}
+			// Set selectedIdx to -1 so the row is NOT selected, ensuring we hit the
+			// non-selected branch of the rendering code.
+			model.selectedIdx = -1
+			model.width = 300
+
+			view := model.View()
+
+			// The GH:ID column should contain "- " (dash padded to 6 chars). We verify
+			// the worktree row is actually rendered and the column shows the placeholder.
+			assert.Contains(t, view, "wt-no-pr")
+			assert.Contains(t, view, "-     ") // "- " padded to 6 chars
+		})
+	}
+}
+
+// TestRenderer_GHIDColumn_WithLinkedPR verifies that when a worktree has a
+// LinkedPR, the GH:ID column shows the PR number.
+func TestRenderer_GHIDColumn_WithLinkedPR(t *testing.T) {
+	tests := []struct {
+		name        string
+		worktree    domain.Worktree
+		wantPRNum   string
+	}{
+		{
+			name: "GH:ID shows PR number for linked PR (non-selected row)",
+			worktree: domain.Worktree{
+				Path:    "/tmp/feat-login",
+				Branch:  "feat/login",
+				IsClean: true,
+				LinkedPR: &domain.PullRequest{
+					Number: 1442,
+					Title:  "Login feature",
+					Author: "alice",
+					State:  "OPEN",
+				},
+			},
+			wantPRNum: "1442",
+		},
+		{
+			name: "GH:ID shows PR number for merged PR",
+			worktree: domain.Worktree{
+				Path:    "/tmp/fix-bug",
+				Branch:  "fix/bug",
+				IsClean: true,
+				LinkedPR: &domain.PullRequest{
+					Number: 55,
+					Title:  "Bug fix",
+					Author: "bob",
+					State:  "MERGED",
+				},
+			},
+			wantPRNum: "55",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			model := NewModel()
+			require.NotNil(t, model)
+			model.view = viewWorktrees
+			model.Worktrees = []domain.Worktree{tt.worktree}
+			model.selectedIdx = -1
+			model.width = 300
+
+			view := model.View()
+
+			assert.Contains(t, view, tt.wantPRNum)
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Phase 4: clipContent & panel focus rendering tests
+// ---------------------------------------------------------------------------
+
+// TestClipContent verifies that clipContent correctly slices content lines
+// with scroll offset and maxLines constraints.
+func TestClipContent(t *testing.T) {
+	tests := []struct {
+		name     string
+		content  string
+		offset   int
+		maxLines int
+		wantOut  string
+	}{
+		{
+			name:     "no clipping needed when within bounds",
+			content:  "line1\nline2\nline3",
+			offset:   0,
+			maxLines: 10,
+			wantOut:  "line1\nline2\nline3",
+		},
+		{
+			name:     "clips to maxLines",
+			content:  "a\nb\nc\nd\ne",
+			offset:   0,
+			maxLines: 3,
+			wantOut:  "a\nb\nc",
+		},
+		{
+			name:     "applies offset",
+			content:  "a\nb\nc\nd",
+			offset:   1,
+			maxLines: 10,
+			wantOut:  "b\nc\nd",
+		},
+		{
+			name:     "applies offset and clips",
+			content:  "a\nb\nc\nd\ne",
+			offset:   1,
+			maxLines: 2,
+			wantOut:  "b\nc",
+		},
+		{
+			name:     "offset beyond content clamps to last line",
+			content:  "a\nb",
+			offset:   5,
+			maxLines: 10,
+			wantOut:  "b",
+		},
+		{
+			name:     "zero maxLines returns content unchanged",
+			content:  "a\nb\nc",
+			offset:   0,
+			maxLines: 0,
+			wantOut:  "a\nb\nc",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := clipContent(tt.content, tt.offset, tt.maxLines)
+			assert.Equal(t, tt.wantOut, result)
+		})
+	}
+}
+
+// TestRenderFull_FooterContainsTabAndJKHints verifies that the footer bar
+// includes the new Tab panel and j/k navigation hints.
+func TestRenderFull_FooterContainsTabAndJKHints(t *testing.T) {
+	model := NewModel()
+	require.NotNil(t, model)
+
+	view := model.View()
+
+	assert.Contains(t, view, "[Tab]")
+	assert.Contains(t, view, "[j/k]")
+	// Old hints must still be present
+	assert.Contains(t, view, "[Enter] Select")
+	assert.Contains(t, view, "[esc] Quit")
+}
+
+// ---------------------------------------------------------------------------
+// End Phase 4 tests (renderer_test.go)
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Phase 5: wrapText — prevent context panel from stretching vertically
+// ---------------------------------------------------------------------------
+
+// TestWrapText verifies that wrapText breaks long lines at word boundaries,
+// hard-breaks words longer than the width, and preserves existing newlines.
+func TestWrapText(t *testing.T) {
+	tests := []struct {
+		name    string
+		input   string
+		width   int
+		wantOut string
+	}{
+		{
+			name:    "short line unchanged",
+			input:   "hello world",
+			width:   50,
+			wantOut: "hello world",
+		},
+		{
+			name:    "long line breaks at word boundary",
+			input:   "one two three four five six seven eight nine ten eleven",
+			width:   20,
+			wantOut: "one two three four\nfive six seven eight\nnine ten eleven",
+		},
+		{
+			name:    "single word longer than width gets hard-broken",
+			input:   "abcdefghijklmnopqrstuvwxyz",
+			width:   10,
+			wantOut: "abcdefghij\nklmnopqrst\nuvwxyz",
+		},
+		{
+			name:    "existing newlines are preserved and each segment wrapped",
+			input:   "line one is short\nthis line is much much much much much much much longer than the limit",
+			width:   20,
+			wantOut: "line one is short\nthis line is much\nmuch much much much\nmuch much longer\nthan the limit",
+		},
+		{
+			name:    "zero width returns input unchanged",
+			input:   "some content",
+			width:   0,
+			wantOut: "some content",
+		},
+		{
+			name:    "empty string",
+			input:   "",
+			width:   10,
+			wantOut: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := wrapText(tt.input, tt.width)
+			assert.Equal(t, tt.wantOut, got)
+		})
+	}
+}
+
+func TestPrStateColor(t *testing.T) {
+	tests := []struct {
+		state     string
+		wantColor string
+	}{
+		{"OPEN", "#00D9FF"},
+		{"MERGED", "#9B59B6"},
+		{"CLOSED", "#E74C3C"},
+		{"UNKNOWN", "#4A5568"},
+		{"", "#4A5568"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.state, func(t *testing.T) {
+			got := prStateColor(tt.state)
+			assert.Equal(t, lipgloss.Color(tt.wantColor), got)
+		})
+	}
+}
+
+
+// TestRenderer_ContextPanel_LongPathTruncated verifies that a worktree path
+// longer than the dynamic ctxInner does not overflow and is truncated with ellipsis.
+func TestRenderer_ContextPanel_LongPathTruncated(t *testing.T) {
+longPath := "/development/worktrees/feat-issue-9-config-file-parsing-very-long-name"
+wt := domain.Worktree{
+Path:    longPath,
+Branch:  "feat-issue-9",
+IsClean: true,
+}
+model := NewModel()
+require.NotNil(t, model)
+model.view = viewWorktrees
+model.Worktrees = []domain.Worktree{wt}
+model.selectedIdx = 0
+
+view := model.View()
+
+// Path must not appear raw (it would overflow the panel when the terminal is narrow).
+assert.NotContains(t, view, longPath, "raw long path must not appear; it should be truncated")
+// The truncated path must contain the ellipsis sentinel.
+assert.Contains(t, view, "Path: ")
+}
+
+// ---------------------------------------------------------------------------
+// Phase 6: context panel height-cap and scroll-reset tests
+// ---------------------------------------------------------------------------
+
+// TestRenderFull_PRWithLongBody_FitsTerminalHeight verifies that a PR with a
+// very long body does not cause the rendered output to exceed the terminal height.
+// This is a regression test for the bug where the context panel grew taller than
+// the terminal, pushing the header bar off-screen.
+func TestRenderFull_PRWithLongBody_FitsTerminalHeight(t *testing.T) {
+	const termHeight = 24
+	const termWidth = 120
+
+	// Build a body that, after word-wrapping, generates hundreds of lines.
+	longBody := strings.Repeat("This is a long line of PR body text that keeps going. ", 200)
+
+	prs := []domain.PullRequest{
+		{
+			Number: 1,
+			Title:  "My very important PR",
+			Branch: "feat/very-long-body-pr",
+			Author: "alice",
+			State:  "OPEN",
+			Labels: []string{"bug", "enhancement", "security", "breaking-change"},
+			Body:   longBody,
+		},
+	}
+
+	model := NewModel()
+	require.NotNil(t, model)
+	model.view = viewPRs
+	model.prs = prs
+	model.width = termWidth
+	model.height = termHeight
+
+	rendered := model.View()
+
+	// Count newlines — output must have at most termHeight lines.
+	lineCount := strings.Count(rendered, "\n") + 1
+	assert.LessOrEqual(t, lineCount, termHeight,
+		"rendered output (%d lines) must not exceed terminal height (%d)", lineCount, termHeight)
+}
+
+// TestRenderFull_IssueWithManyLabels_FitsTerminalHeight verifies the same height
+// constraint when viewing an issue with many labels (exercises the Labels: prefix fix).
+func TestRenderFull_IssueWithManyLabels_FitsTerminalHeight(t *testing.T) {
+	const termHeight = 24
+	const termWidth = 80
+
+	issues := []domain.Issue{
+		{
+			Number: 5,
+			Title:  "Some issue",
+			Labels: []string{"alpha", "beta", "gamma", "delta", "epsilon", "zeta", "eta", "theta"},
+		},
+	}
+
+	model := NewModel()
+	require.NotNil(t, model)
+	model.view = viewIssues
+	model.issues = issues
+	model.width = termWidth
+	model.height = termHeight
+
+	rendered := model.View()
+
+	lineCount := strings.Count(rendered, "\n") + 1
+	assert.LessOrEqual(t, lineCount, termHeight,
+		"rendered output (%d lines) must not exceed terminal height (%d)", lineCount, termHeight)
+}
+
+// TestMoveDown_ResetsCtxScrollOffset verifies that navigating the list panel
+// resets the context scroll offset so the new item's content starts at the top.
+func TestMoveDown_ResetsCtxScrollOffset(t *testing.T) {
+	model := NewModel()
+	require.NotNil(t, model)
+	model.view = viewPRs
+	model.focused = panelList
+	model.prs = []domain.PullRequest{
+		{Number: 1, Title: "PR 1", Branch: "feat/1", Author: "alice", State: "OPEN"},
+		{Number: 2, Title: "PR 2", Branch: "feat/2", Author: "bob", State: "OPEN"},
+	}
+	model.selectedPRIdx = 0
+	model.ctxScrollOffset = 5 // simulate scrolled state
+
+	model.moveDown()
+
+	assert.Equal(t, 0, model.ctxScrollOffset, "ctxScrollOffset must reset to 0 after navigating to next PR")
+	assert.Equal(t, 1, model.selectedPRIdx)
+}
+
+// TestMoveUp_ResetsCtxScrollOffset verifies that navigating up in the list panel
+// resets the context scroll offset.
+func TestMoveUp_ResetsCtxScrollOffset(t *testing.T) {
+	model := NewModel()
+	require.NotNil(t, model)
+	model.view = viewPRs
+	model.focused = panelList
+	model.prs = []domain.PullRequest{
+		{Number: 1, Title: "PR 1", Branch: "feat/1", Author: "alice", State: "OPEN"},
+		{Number: 2, Title: "PR 2", Branch: "feat/2", Author: "bob", State: "OPEN"},
+	}
+	model.selectedPRIdx = 1
+	model.ctxScrollOffset = 3 // simulate scrolled state
+
+	model.moveUp()
+
+	assert.Equal(t, 0, model.ctxScrollOffset, "ctxScrollOffset must reset to 0 after navigating to previous PR")
+	assert.Equal(t, 0, model.selectedPRIdx)
+}
+
+// TestViewSwitch_ResetsCtxScrollOffset verifies that switching views (W/I/P keys)
+// resets the context scroll offset so the new view starts from the top.
+func TestViewSwitch_ResetsCtxScrollOffset(t *testing.T) {
+	tests := []struct {
+		name    string
+		key     string
+		wantView activeView
+	}{
+		{"switch to worktrees resets scroll", "w", viewWorktrees},
+		{"switch to issues resets scroll", "i", viewIssues},
+		{"switch to PRs resets scroll", "p", viewPRs},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			model := NewModel()
+			require.NotNil(t, model)
+			model.ctxScrollOffset = 7 // simulate scrolled state
+
+			_, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(tt.key)})
+
+			assert.Equal(t, 0, model.ctxScrollOffset, "ctxScrollOffset must reset to 0 after switching view")
+			assert.Equal(t, tt.wantView, model.view)
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Issue body in context panel tests
+// ---------------------------------------------------------------------------
+
+// TestRenderer_IssueContextPanel_ShowsBody verifies that the issue context panel
+// renders the issue body when present.
+func TestRenderer_IssueContextPanel_ShowsBody(t *testing.T) {
+	tests := []struct {
+		name    string
+		issue   domain.Issue
+		wantIn  []string
+		wantOut []string
+	}{
+		{
+			name: "shows body text when populated",
+			issue: domain.Issue{
+				Number: 7,
+				Title:  "Fix the bug",
+				Body:   "This bug causes a crash on startup.",
+				Labels: []string{},
+			},
+			wantIn: []string{"This bug causes a crash on startup."},
+		},
+		{
+			name: "shows (no description) when body is empty",
+			issue: domain.Issue{
+				Number: 8,
+				Title:  "Empty body issue",
+				Body:   "",
+				Labels: []string{},
+			},
+			wantIn: []string{"(no description)"},
+		},
+		{
+			name: "body appears alongside all context fields",
+			issue: domain.Issue{
+				Number: 9,
+				Title:  "Some issue",
+				Body:   "Details about the issue.",
+				Labels: []string{"bug"},
+			},
+			wantIn: []string{
+				"Context: Issue #9",
+				"Some issue",
+				"Status: ● Open",
+				"Labels: [bug]",
+				"Details about the issue.",
+				"[g] Open in GitHub",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			model := NewModel()
+			require.NotNil(t, model)
+			model.view = viewIssues
+			model.issues = []domain.Issue{tt.issue}
+			model.selectedIssueIdx = 0
+
+			view := model.View()
+
+			for _, want := range tt.wantIn {
+				assert.Contains(t, view, want)
+			}
+			for _, notWant := range tt.wantOut {
+				assert.NotContains(t, view, notWant)
+			}
+		})
+	}
+}

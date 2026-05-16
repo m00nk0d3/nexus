@@ -18,7 +18,7 @@ func TestNewIssueCommand(t *testing.T) {
 }
 
 func TestListOpenIssues_ValidOutput_ReturnsIssues(t *testing.T) {
-	raw := `[{"number":5,"title":"[Phase 1] Implement - Create/delete modals","labels":[{"name":"phase-1"}]},{"number":6,"title":"[Phase 1] Implement - Switch worktree","labels":[{"name":"phase-1"},{"name":"enhancement"}]}]`
+	raw := `[{"number":5,"title":"[Phase 1] Implement - Create/delete modals","body":"","labels":[{"name":"phase-1"}]},{"number":6,"title":"[Phase 1] Implement - Switch worktree","body":"Some details","labels":[{"name":"phase-1"},{"name":"enhancement"}]}]`
 
 	runner := func(_ string, _ ...string) (string, error) {
 		return raw, nil
@@ -102,7 +102,7 @@ func TestListOpenIssues_PassesCorrectArgs(t *testing.T) {
 	_, err := cmd.ListOpenIssues()
 
 	require.NoError(t, err)
-	assert.Equal(t, []string{"issue", "list", "--json", "number,title,labels", "--state", "open", "--limit", "100"}, capturedArgs)
+	assert.Equal(t, []string{"issue", "list", "--json", "number,title,body,labels", "--state", "open", "--limit", "100"}, capturedArgs)
 }
 
 func TestListOpenIssues_MapsDomainsCorrectly(t *testing.T) {
@@ -113,9 +113,9 @@ func TestListOpenIssues_MapsDomainsCorrectly(t *testing.T) {
 	}{
 		{
 			name: "single issue with multiple labels",
-			raw:  `[{"number":42,"title":"Fix the thing","labels":[{"name":"bug"},{"name":"priority-high"}]}]`,
+			raw:  `[{"number":42,"title":"Fix the thing","body":"Details here","labels":[{"name":"bug"},{"name":"priority-high"}]}]`,
 			expected: []domain.Issue{
-				{Number: 42, Title: "Fix the thing", Labels: []string{"bug", "priority-high"}},
+				{Number: 42, Title: "Fix the thing", Body: "Details here", Labels: []string{"bug", "priority-high"}},
 			},
 		},
 	}
@@ -146,8 +146,8 @@ func TestNewPRCommand(t *testing.T) {
 
 func TestListOpenPRs(t *testing.T) {
 	twoPRsJSON := `[
-		{"number":1,"title":"Add login","headRefName":"feat/login","author":{"login":"alice"},"state":"OPEN","labels":[{"name":"enhancement"}],"isDraft":false},
-		{"number":2,"title":"WIP: refactor","headRefName":"chore/refactor","author":{"login":"bob"},"state":"OPEN","labels":[{"name":"wip"},{"name":"refactor"}],"isDraft":true}
+		{"number":1,"title":"Add login","body":"Adds login flow","headRefName":"feat/login","author":{"login":"alice"},"state":"OPEN","labels":[{"name":"enhancement"}],"isDraft":false},
+		{"number":2,"title":"WIP: refactor","body":"","headRefName":"chore/refactor","author":{"login":"bob"},"state":"OPEN","labels":[{"name":"wip"},{"name":"refactor"}],"isDraft":true}
 	]`
 
 	tests := []struct {
@@ -163,8 +163,8 @@ func TestListOpenPRs(t *testing.T) {
 			name:      "valid JSON with 2 PRs maps correctly",
 			runnerOut: twoPRsJSON,
 			wantPRs: []domain.PullRequest{
-				{Number: 1, Title: "Add login", Branch: "feat/login", Author: "alice", State: "OPEN", Labels: []string{"enhancement"}, IsDraft: false},
-				{Number: 2, Title: "WIP: refactor", Branch: "chore/refactor", Author: "bob", State: "OPEN", Labels: []string{"wip", "refactor"}, IsDraft: true},
+				{Number: 1, Title: "Add login", Body: "Adds login flow", Branch: "feat/login", Author: "alice", State: "OPEN", Labels: []string{"enhancement"}, IsDraft: false},
+				{Number: 2, Title: "WIP: refactor", Body: "", Branch: "chore/refactor", Author: "bob", State: "OPEN", Labels: []string{"wip", "refactor"}, IsDraft: true},
 			},
 		},
 		{
@@ -245,7 +245,7 @@ func TestListOpenPRs(t *testing.T) {
 }
 
 func TestGetPR(t *testing.T) {
-	validPRJSON := `{"number":42,"title":"Implement feature","headRefName":"feat/feature","author":{"login":"frank"},"state":"MERGED","labels":[{"name":"feature"}],"isDraft":false}`
+	validPRJSON := `{"number":42,"title":"Implement feature","body":"This implements the feature.","headRefName":"feat/feature","author":{"login":"frank"},"state":"MERGED","labels":[{"name":"feature"}],"isDraft":false}`
 
 	tests := []struct {
 		name        string
@@ -264,6 +264,7 @@ func TestGetPR(t *testing.T) {
 			wantPR: &domain.PullRequest{
 				Number:  42,
 				Title:   "Implement feature",
+				Body:    "This implements the feature.",
 				Branch:  "feat/feature",
 				Author:  "frank",
 				State:   "MERGED",

@@ -4,6 +4,7 @@ package domain
 type PullRequest struct {
 	Number  int
 	Title   string
+	Body    string
 	Branch  string
 	Author  string
 	State   string // "OPEN", "MERGED", "CLOSED"

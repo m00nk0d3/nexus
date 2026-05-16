@@ -145,6 +145,13 @@ func (t Theme) StatusStyle(status string) lipgloss.Style {
 	}
 }
 
+// MutedBorder returns s with the border foreground dimmed to the muted color.
+// Apply this to unfocused panels to visually de-emphasize them relative to the
+// currently focused panel.
+func (t Theme) MutedBorder(s lipgloss.Style) lipgloss.Style {
+	return s.BorderForeground(lipgloss.Color(t.muted))
+}
+
 // RenderBox renders content inside a rounded-border panel with an optional title.
 func (t Theme) RenderBox(title, content string) string {
 	style := lipgloss.NewStyle().

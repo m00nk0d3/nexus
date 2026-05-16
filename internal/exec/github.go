@@ -27,7 +27,7 @@ func NewIssueCommandWithRunner(repoPath string, runner commandRunner) *IssueComm
 
 // ListOpenIssues returns all open GitHub issues via `gh issue list`.
 func (c *IssueCommand) ListOpenIssues() ([]domain.Issue, error) {
-	output, err := c.runner(c.repoPath, "issue", "list", "--json", "number,title,labels", "--state", "open", "--limit", "100")
+	output, err := c.runner(c.repoPath, "issue", "list", "--json", "number,title,body,labels", "--state", "open", "--limit", "100")
 	if err != nil {
 		return nil, fmt.Errorf("list open issues: %w", err)
 	}
@@ -45,10 +45,11 @@ type ghLabel struct {
 	Name string `json:"name"`
 }
 
-// ghIssue is the JSON shape returned by `gh issue list --json number,title,labels`.
+// ghIssue is the JSON shape returned by `gh issue list --json number,title,body,labels`.
 type ghIssue struct {
 	Number int       `json:"number"`
 	Title  string    `json:"title"`
+	Body   string    `json:"body"`
 	Labels []ghLabel `json:"labels"`
 }
 
@@ -67,6 +68,7 @@ func parseIssueList(raw string) ([]domain.Issue, error) {
 		issues = append(issues, domain.Issue{
 			Number: g.Number,
 			Title:  g.Title,
+			Body:   g.Body,
 			Labels: labels,
 		})
 	}
@@ -90,7 +92,7 @@ func NewPRCommandWithRunner(repoPath string, runner commandRunner) *PRCommand {
 	return &PRCommand{repoPath: repoPath, runner: runner}
 }
 
-const prFields = "number,title,headRefName,author,state,labels,isDraft"
+const prFields = "number,title,body,headRefName,author,state,labels,isDraft"
 
 // ListOpenPRs returns all open pull requests via `gh pr list`.
 func (c *PRCommand) ListOpenPRs() ([]domain.PullRequest, error) {
@@ -131,6 +133,7 @@ type ghAuthor struct {
 type ghPR struct {
 	Number      int       `json:"number"`
 	Title       string    `json:"title"`
+	Body        string    `json:"body"`
 	HeadRefName string    `json:"headRefName"`
 	Author      ghAuthor  `json:"author"`
 	State       string    `json:"state"`
@@ -146,6 +149,7 @@ func ghPRToDomain(g ghPR) domain.PullRequest {
 	return domain.PullRequest{
 		Number:  g.Number,
 		Title:   g.Title,
+		Body:    g.Body,
 		Branch:  g.HeadRefName,
 		Author:  g.Author.Login,
 		State:   g.State,
