@@ -372,7 +372,8 @@ func TestRenderIssueList_ContainsIssueRows(t *testing.T) {
 }
 
 // TestRenderPRList_ContainsHeaders verifies that renderPRList renders
-// the required column headers: #, TITLE, BRANCH, AUTHOR, STATUS.
+// the required column headers: #, TITLE, BRANCH, STATUS.
+// Note: AUTHOR column was removed from the list (it is visible in the context panel).
 func TestRenderPRList_ContainsHeaders(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -380,7 +381,7 @@ func TestRenderPRList_ContainsHeaders(t *testing.T) {
 	}{
 		{
 			name:   "renders all required column headers",
-			wantIn: []string{"#", "TITLE", "BRANCH", "AUTHOR", "STATUS"},
+			wantIn: []string{"#", "TITLE", "BRANCH", "STATUS"},
 		},
 	}
 
@@ -409,9 +410,9 @@ func TestRenderPRList_ContainsPRRows(t *testing.T) {
 		wantIn      []string
 	}{
 		{
-			name:        "renders PR number, title, branch, author, state",
+			name:        "renders PR number, title, branch, and state",
 			selectedIdx: 0,
-			wantIn:      []string{"42", "My PR", "feat/awesome", "alice", "OPEN"},
+			wantIn:      []string{"42", "My PR", "feat/awesome", "OPEN"},
 		},
 		{
 			name:        "selected PR (idx 0) has > cursor",
@@ -421,7 +422,7 @@ func TestRenderPRList_ContainsPRRows(t *testing.T) {
 		{
 			name:        "second PR is also rendered",
 			selectedIdx: 0,
-			wantIn:      []string{"43", "Fix PR", "fix/bug", "bob"},
+			wantIn:      []string{"43", "Fix PR", "fix/bug"},
 		},
 	}
 
@@ -610,7 +611,7 @@ func TestRenderFull_PRViewShowsPRList(t *testing.T) {
 			prs: []domain.PullRequest{
 				{Number: 1, Title: "Any PR", Branch: "main", Author: "dev", State: "OPEN"},
 			},
-			wantIn: []string{"BRANCH", "AUTHOR"},
+			wantIn: []string{"BRANCH", "STATUS"},
 		},
 	}
 
@@ -1170,4 +1171,28 @@ func TestPrStateColor(t *testing.T) {
 			assert.Equal(t, lipgloss.Color(tt.wantColor), got)
 		})
 	}
+}
+
+
+// TestRenderer_ContextPanel_LongPathTruncated verifies that a worktree path
+// longer than the dynamic ctxInner does not overflow and is truncated with ellipsis.
+func TestRenderer_ContextPanel_LongPathTruncated(t *testing.T) {
+longPath := "/development/worktrees/feat-issue-9-config-file-parsing-very-long-name"
+wt := domain.Worktree{
+Path:    longPath,
+Branch:  "feat-issue-9",
+IsClean: true,
+}
+model := NewModel()
+require.NotNil(t, model)
+model.view = viewWorktrees
+model.Worktrees = []domain.Worktree{wt}
+model.selectedIdx = 0
+
+view := model.View()
+
+// Path must not appear raw (it would overflow the panel when the terminal is narrow).
+assert.NotContains(t, view, longPath, "raw long path must not appear; it should be truncated")
+// The truncated path must contain the ellipsis sentinel.
+assert.Contains(t, view, "Path: ")
 }

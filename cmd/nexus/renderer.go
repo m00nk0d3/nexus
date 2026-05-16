@@ -17,7 +17,7 @@ const (
 	actionBarHints   = "[c-n] New  [c-d] Delete  [c-l] Lock | [f1] Help"
 	defaultTermWidth = 120
 	navPanelInner    = 18
-	ctxPanelInner    = 50
+	// ctxPanelInner is no longer a constant — use computeCtxInner(termWidth) instead.
 	// panelOverhead: 1 border-left + 1 pad-left + 1 pad-right + 1 border-right
 	panelOverhead = 4
 	// panelPaddingOverhead: lipgloss Width includes padding, so pass Width(inner + panelPaddingOverhead)
@@ -28,6 +28,10 @@ const (
 	minPathWidth   = 5
 	// fixedChromeRows: 1 header + 1 footer + 1 action bar + 2 panel borders (top+bottom)
 	fixedChromeRows = 5
+
+	// ctxMinInner / ctxMaxInner bound the dynamic context-panel content width.
+	ctxMinInner = 25
+	ctxMaxInner = 60
 )
 
 type navItem struct {
@@ -52,7 +56,8 @@ func renderFull(worktrees []domain.Worktree, selectedIdx int, repoPath string, t
 	theme := styles.NewTheme(styles.Themes[themeIdx])
 
 	navOuter := navPanelInner + panelOverhead
-	ctxOuter := ctxPanelInner + panelOverhead
+	ctxInner := computeCtxInner(termWidth)
+	ctxOuter := ctxInner + panelOverhead
 	listOuter := termWidth - navOuter - ctxOuter
 	if listOuter < minPathWidth+panelOverhead {
 		listOuter = minPathWidth + panelOverhead
@@ -80,7 +85,7 @@ func renderFull(worktrees []domain.Worktree, selectedIdx int, repoPath string, t
 		list = renderWorktreePanel(worktrees, selectedIdx, theme, listInner, panelHeight, focused == panelList)
 	}
 
-	ctx := renderContextPanel(view, worktrees, selectedIdx, issues, selectedIssueIdx, prs, selectedPRIdx, theme, panelHeight, ctxScroll, focused == panelCtx)
+	ctx := renderContextPanel(view, worktrees, selectedIdx, issues, selectedIssueIdx, prs, selectedPRIdx, theme, panelHeight, ctxScroll, focused == panelCtx, ctxInner)
 	mainRow := lipgloss.JoinHorizontal(lipgloss.Top, nav, list, ctx)
 	footer := renderFooterBar(theme, time.Now().UTC().Format("2006-01-02"), termWidth, syncing, lastSynced, syncErr)
 	actionBar := renderActionBar(theme, termWidth)
@@ -133,7 +138,20 @@ func renderWorktreePanel(worktrees []domain.Worktree, selectedIdx int, theme sty
 	content.WriteString(headerStyle.Render(headerRow))
 	content.WriteString("\n")
 
-	for i, wt := range worktrees {
+	// Bug 1: cap rendered rows so panel content never exceeds panelHeight.
+	// The header row occupies 1 line, so at most panelHeight-1 data rows fit.
+	visible := worktrees
+	if panelHeight > 0 {
+		maxItems := panelHeight - 1
+		if maxItems < 0 {
+			maxItems = 0
+		}
+		if maxItems < len(visible) {
+			visible = visible[:maxItems]
+		}
+	}
+
+	for i, wt := range visible {
 		name := truncateStr(filepath.Base(wt.Path), 18)
 		path := truncateStr(wt.Path, pathWidth)
 		status := worktreeStatus(wt)
@@ -177,7 +195,7 @@ func renderWorktreePanel(worktrees []domain.Worktree, selectedIdx int, theme sty
 	return st.Render(strings.TrimRight(content.String(), "\n"))
 }
 
-func renderContextPanel(view activeView, worktrees []domain.Worktree, worktreeIdx int, issues []domain.Issue, issueIdx int, prs []domain.PullRequest, prIdx int, theme styles.Theme, panelHeight int, ctxScroll int, focused bool) string {
+func renderContextPanel(view activeView, worktrees []domain.Worktree, worktreeIdx int, issues []domain.Issue, issueIdx int, prs []domain.PullRequest, prIdx int, theme styles.Theme, panelHeight int, ctxScroll int, focused bool, ctxInner int) string {
 	var content string
 	switch view {
 	case viewIssues:
@@ -186,7 +204,11 @@ func renderContextPanel(view activeView, worktrees []domain.Worktree, worktreeId
 		} else {
 			iss := issues[issueIdx]
 			labelsStr := formatLabels(iss.Labels)
-			content = fmt.Sprintf("Context: Issue #%d\n%s\n\nStatus: ● Open\nLabels: %s\n\n[g] Open in GitHub", iss.Number, iss.Title, labelsStr)
+			// Bug 3: wrap title and labels to prevent visual wrapping from
+			// outpacing clipContent's line-count, which would push the footer off screen.
+			title := wrapText(iss.Title, ctxInner)
+			labels := wrapText(labelsStr, ctxInner)
+			content = fmt.Sprintf("Context: Issue #%d\n%s\n\nStatus: ● Open\nLabels: %s\n\n[g] Open in GitHub", iss.Number, title, labels)
 		}
 	case viewPRs:
 		if len(prs) == 0 || prIdx < 0 || prIdx >= len(prs) {
@@ -198,11 +220,17 @@ func renderContextPanel(view activeView, worktrees []domain.Worktree, worktreeId
 				state = "DRAFT"
 			}
 			labelsStr := formatLabels(pr.Labels)
-			body := wrapText(pr.Body, ctxPanelInner)
+			body := wrapText(pr.Body, ctxInner)
 			if body == "" {
 				body = "(no description)"
 			}
-			content = fmt.Sprintf("Context: PR #%d\n%s\n\nBranch: %s\nAuthor: @%s\nStatus: %s\nLabels: %s\n\n%s\n\n[g] Open in GitHub", pr.Number, pr.Title, pr.Branch, pr.Author, state, labelsStr, body)
+			// Bug 3: wrap/truncate fields so visual line count matches \n count,
+			// preventing the panel from growing and pushing the footer off screen.
+			title := wrapText(pr.Title, ctxInner)
+			branch := truncateStr(pr.Branch, ctxInner-8)  // "Branch: " prefix = 8 chars
+			author := truncateStr(pr.Author, ctxInner-9)  // "Author: @" prefix = 9 chars
+			labels := wrapText(labelsStr, ctxInner)
+			content = fmt.Sprintf("Context: PR #%d\n%s\n\nBranch: %s\nAuthor: @%s\nStatus: %s\nLabels: %s\n\n%s\n\n[g] Open in GitHub", pr.Number, title, branch, author, state, labels, body)
 		}
 	default: // viewWorktrees
 		if len(worktrees) == 0 || worktreeIdx < 0 || worktreeIdx >= len(worktrees) {
@@ -212,9 +240,9 @@ func renderContextPanel(view activeView, worktrees []domain.Worktree, worktreeId
 			if wt.LinkedPR != nil {
 				pr := wt.LinkedPR
 				labelsStr := formatLabels(pr.Labels)
-				titleTrunc := truncateStr(pr.Title, ctxPanelInner)
+				titleTrunc := truncateStr(pr.Title, ctxInner)
 				statusDot := lipgloss.NewStyle().Foreground(prStateColor(pr.State)).Render("●")
-				body := wrapText(pr.Body, ctxPanelInner)
+				body := wrapText(pr.Body, ctxInner)
 				if body == "" {
 					body = "(no description)"
 				}
@@ -223,14 +251,16 @@ func renderContextPanel(view activeView, worktrees []domain.Worktree, worktreeId
 					pr.Number, titleTrunc, pr.Title, pr.Author, statusDot, pr.State, labelsStr, body,
 				)
 			} else {
+				const pathLabel = "Path: "
+				pathTrunc := truncateStr(wt.Path, ctxInner-len(pathLabel))
 				content = fmt.Sprintf(
 					"Context: %s\nBranch: %s\nPath: %s\n\nAGENT COMMANDS:\n[a] Spawn Claude Code\n[c] Spawn Copilot\n[s] Open Shell in WT",
-					filepath.Base(wt.Path), wt.Branch, wt.Path,
+					filepath.Base(wt.Path), wt.Branch, pathTrunc,
 				)
 			}
 		}
 	}
-	st := theme.GetStyle("context-panel").Width(ctxPanelInner + panelPaddingOverhead)
+	st := theme.GetStyle("context-panel").Width(ctxInner + panelPaddingOverhead)
 	if !focused {
 		st = theme.MutedBorder(st)
 	}
@@ -255,7 +285,20 @@ func renderIssueList(issues []domain.Issue, selectedIdx int, theme styles.Theme,
 	if labelsWidth < 8 {
 		labelsWidth = 8
 	}
-	for i, issue := range issues {
+
+	// Bug 1: cap rendered rows so panel content never exceeds panelHeight.
+	visible := issues
+	if panelHeight > 0 {
+		maxItems := panelHeight - 1
+		if maxItems < 0 {
+			maxItems = 0
+		}
+		if maxItems < len(visible) {
+			visible = visible[:maxItems]
+		}
+	}
+
+	for i, issue := range visible {
 		labels := truncateStr(strings.Join(issue.Labels, " "), labelsWidth)
 		title := truncateStr(issue.Title, titleWidth)
 		// "Open" is hardcoded because gh issue list only returns open issues by default.
@@ -284,26 +327,52 @@ func renderIssueList(issues []domain.Issue, selectedIdx int, theme styles.Theme,
 func renderPRList(prs []domain.PullRequest, selectedIdx int, theme styles.Theme, listInner, panelHeight int, focused bool) string {
 	var content strings.Builder
 	headerStyle := theme.GetStyle("table-header")
-	titleWidth := listInner - 50
+	// Bug 2: drop AUTHOR column (visible in context panel) and reduce BRANCH to 14.
+	// Fixed overhead: 2(cursor) + 6(#) + 1(sp) + 1(sp) + 14(branch) + 1(sp) = 25,
+	// Dynamic branch width: ~15% of available space, clamped to [8, 18].
+	branchWidth := listInner * 15 / 100
+	if branchWidth < 8 {
+		branchWidth = 8
+	}
+	if branchWidth > 18 {
+		branchWidth = 18
+	}
+	// Fixed overhead: 2(cursor/spaces) + 6(#) + 1(sp) + 1(sp) + 1(sp) + 6(STATUS) = 17;
+	// plus branchWidth + 2 spaces around it = branchWidth + 2 → total fixed = 19 + branchWidth.
+	// titleWidth fills remaining so total row = listInner.
+	const prStatusMaxLen = 6
+	titleWidth := listInner - (11 + branchWidth + prStatusMaxLen)
 	if titleWidth < 10 {
 		titleWidth = 10
 	}
-	headerRow := fmt.Sprintf("  %-6s %-*s %-16s %-14s %s", "#", titleWidth, "TITLE", "BRANCH", "AUTHOR", "STATUS")
+	headerRow := fmt.Sprintf("  %-6s %-*s %-*s %s", "#", titleWidth, "TITLE", branchWidth, "BRANCH", "STATUS")
 	content.WriteString(headerStyle.Render(headerRow))
 	content.WriteString("\n")
-	for i, pr := range prs {
+
+	// Bug 1: cap rendered rows so panel content never exceeds panelHeight.
+	visible := prs
+	if panelHeight > 0 {
+		maxItems := panelHeight - 1
+		if maxItems < 0 {
+			maxItems = 0
+		}
+		if maxItems < len(visible) {
+			visible = visible[:maxItems]
+		}
+	}
+
+	for i, pr := range visible {
 		title := truncateStr(pr.Title, titleWidth)
-		branch := truncateStr(pr.Branch, 16)
-		author := truncateStr(pr.Author, 14)
+		branch := truncateStr(pr.Branch, branchWidth)
 		state := pr.State
 		if pr.IsDraft {
 			state = "DRAFT"
 		}
 		if i == selectedIdx {
-			row := fmt.Sprintf("%-6d %-*s %-16s %-14s %s", pr.Number, titleWidth, title, branch, author, state)
+			row := fmt.Sprintf("%-6d %-*s %-*s %s", pr.Number, titleWidth, title, branchWidth, branch, state)
 			content.WriteString(theme.GetStyle("selected-row").Width(listInner).Render("> " + row))
 		} else {
-			row := fmt.Sprintf("  %-6d %-*s %-16s %-14s %s", pr.Number, titleWidth, title, branch, author, state)
+			row := fmt.Sprintf("  %-6d %-*s %-*s %s", pr.Number, titleWidth, title, branchWidth, branch, state)
 			content.WriteString(row)
 		}
 		content.WriteString("\n")
@@ -369,6 +438,19 @@ func renderFooterBar(theme styles.Theme, date string, termWidth int, syncing boo
 
 func renderActionBar(theme styles.Theme, termWidth int) string {
 	return theme.GetStyle("status-bar").Width(termWidth).Render(actionBarHints)
+}
+
+// computeCtxInner returns the inner content width for the context panel.
+// It scales to ~30 % of the terminal width and is clamped to [ctxMinInner, ctxMaxInner].
+func computeCtxInner(termWidth int) int {
+	inner := termWidth * 30 / 100
+	if inner < ctxMinInner {
+		return ctxMinInner
+	}
+	if inner > ctxMaxInner {
+		return ctxMaxInner
+	}
+	return inner
 }
 
 // wrapText word-wraps s to at most width runes per line.
