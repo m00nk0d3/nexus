@@ -398,7 +398,7 @@ func TestModelUpdate_WorktreeSwitchedMsg_ErrorHandling(t *testing.T) {
 			name:         "sets model error when switch fails",
 			msg:          worktreeSwitchedMsg{err: errors.New("switch failed")},
 			wantError:    "Failed to switch worktree: switch failed",
-			wantCmdIsNil: true,
+			wantCmdIsNil: false,
 		},
 	}
 
@@ -410,9 +410,11 @@ func TestModelUpdate_WorktreeSwitchedMsg_ErrorHandling(t *testing.T) {
 			updated, cmd := model.Update(tt.msg)
 			updatedModel, ok := updated.(*Model)
 			require.True(t, ok)
-			assert.Equal(t, tt.wantError, updatedModel.Error)
+			assert.Equal(t, tt.wantError, updatedModel.statusErr)
 			if tt.wantCmdIsNil {
 				assert.Nil(t, cmd)
+			} else {
+				assert.NotNil(t, cmd)
 			}
 		})
 	}
@@ -500,14 +502,14 @@ func TestModelUpdate_WorktreesRefreshedMsg_ClampsSelectedIndex(t *testing.T) {
 func TestModelView_ShowsErrorMessage(t *testing.T) {
 	model := NewModel()
 	require.NotNil(t, model)
-	model.Error = "Failed to switch worktree: boom"
+	model.statusErr = "Failed to switch worktree: boom"
 
 	view := model.View()
-	// Error is rendered as a centered overlay box, not prepended to the base view.
+	// Error content is present in the overlay.
 	assert.Contains(t, view, "Failed to switch worktree: boom")
 	assert.Contains(t, view, "Press any key to dismiss")
-	// Base view is replaced by the overlay — the TUI chrome should not be visible.
-	assert.NotContains(t, view, "GIT WORKTREE ORCHESTRATOR")
+	// Base view remains visible underneath the overlay modal.
+	assert.Contains(t, view, "GIT WORKTREE ORCHESTRATOR")
 }
 
 func TestModel_T_KeyCyclesTheme(t *testing.T) {
@@ -990,8 +992,8 @@ func TestModel_BrowserOpenErrMsg_SetsError(t *testing.T) {
 	m, ok := updated.(*Model)
 	require.True(t, ok)
 
-	assert.Contains(t, m.Error, "Failed to open in browser")
-	assert.Contains(t, m.Error, "gh: not found")
+	assert.Contains(t, m.statusErr, "Failed to open in browser")
+	assert.Contains(t, m.statusErr, "gh: not found")
 }
 
 // TestModel_BrowserOpenErrMsg_NilErrorNoChange verifies that a nil-error
@@ -1004,7 +1006,7 @@ func TestModel_BrowserOpenErrMsg_NilErrorNoChange(t *testing.T) {
 	m, ok := updated.(*Model)
 	require.True(t, ok)
 
-	assert.Empty(t, m.Error)
+	assert.Empty(t, m.statusErr)
 }
 
 // ---------------------------------------------------------------------------
@@ -1298,7 +1300,7 @@ func TestModel_C_Key_TriggersCopilotPrompt(t *testing.T) {
 
 			assert.False(t, updatedModel.copilotPromptActive,
 				"copilotPromptActive should be false")
-			assert.NotEmpty(t, updatedModel.Error, "should show an error message to the user")
+			assert.NotEmpty(t, updatedModel.statusErr, "should show an error message to the user")
 		})
 	}
 
@@ -1339,7 +1341,7 @@ func TestModel_C_Key_TriggersCopilotPrompt(t *testing.T) {
 
 		assert.False(t, updatedModel.copilotPromptActive,
 			"copilotPromptActive should stay false when not in worktrees view")
-		assert.NotEmpty(t, updatedModel.Error, "should show an error message when not in worktrees view")
+		assert.NotEmpty(t, updatedModel.statusErr, "should show an error message when not in worktrees view")
 	})
 }
 
@@ -1483,7 +1485,7 @@ func TestModel_AgentDoneMsg_LogsToDBWhenAvailable(t *testing.T) {
 	require.True(t, ok)
 
 	// No error should be set on the model.
-	assert.Empty(t, updatedModel.Error, "DB log should not set an error on success")
+	assert.Empty(t, updatedModel.statusErr, "DB log should not set an error on success")
 
 	// Verify the row was actually written.
 	var count int
@@ -1626,7 +1628,7 @@ func TestModel_A_Key_TriggersClaude(t *testing.T) {
 
 			assert.False(t, updatedModel.claudePromptActive,
 				"claudePromptActive should be false")
-			assert.NotEmpty(t, updatedModel.Error, "should show an error message to the user")
+			assert.NotEmpty(t, updatedModel.statusErr, "should show an error message to the user")
 		})
 	}
 
@@ -1666,7 +1668,7 @@ func TestModel_A_Key_TriggersClaude(t *testing.T) {
 
 		assert.False(t, updatedModel.claudePromptActive,
 			"claudePromptActive should stay false when not in worktrees view")
-		assert.NotEmpty(t, updatedModel.Error, "should show an error message when not in worktrees view")
+		assert.NotEmpty(t, updatedModel.statusErr, "should show an error message when not in worktrees view")
 	})
 }
 
@@ -1779,8 +1781,8 @@ func TestModel_A_Key_BinaryNotFound_SetsError(t *testing.T) {
 
 	assert.False(t, updatedModel.claudePromptActive,
 		"prompt should not open when binary is not found")
-	assert.Nil(t, cmd, "no cmd should be returned when binary is missing")
-	assert.Contains(t, updatedModel.Error, "claude binary not found",
+	assert.NotNil(t, cmd, "clearErrorCmd should be returned when binary is missing")
+	assert.Contains(t, updatedModel.statusErr, "claude binary not found",
 		"error should mention the missing binary")
 }
 
@@ -1862,9 +1864,9 @@ func TestModel_Enter_InViewPRs_WorktreeExists_SetsError(t *testing.T) {
 	updatedModel, ok := updated.(*Model)
 	require.True(t, ok)
 
-	assert.Nil(t, cmd, "no cmd when error shown")
+	assert.NotNil(t, cmd, "clearErrorCmd should be returned")
 	assert.Nil(t, updatedModel.activeModal, "no modal should be opened")
-	assert.Contains(t, updatedModel.Error, "feat/issue-1-my-pr", "error should mention the branch")
+	assert.Contains(t, updatedModel.statusErr, "feat/issue-1-my-pr", "error should mention the branch")
 }
 
 // TestModel_Enter_InViewPRs_EmptyList_NoOp verifies that pressing Enter in the PR
@@ -1946,15 +1948,15 @@ func TestBuildAiderCmd_PassesSelectedFiles(t *testing.T) {
 }
 
 // TestSpawnAiderCmd_BinaryNotFound_ReturnsNilCmd verifies that spawnAiderCmd
-// returns nil and sets m.Error when the configured aider binary is not found.
+// returns a clearErrorCmd and sets statusErr when the configured aider binary is not found.
 func TestSpawnAiderCmd_BinaryNotFound_ReturnsNilCmd(t *testing.T) {
 	model := NewModel()
 	model.Config.AIAgents.AiderBinary = "definitely-not-a-real-binary-xyz-12345"
 
 	cmd := model.spawnAiderCmd("/tmp/my-wt", []string{"main.go"})
 
-	assert.Nil(t, cmd, "spawnAiderCmd must return nil when binary is not found")
-	assert.Contains(t, model.Error, "aider not found")
+	assert.NotNil(t, cmd, "spawnAiderCmd must return clearErrorCmd when binary is not found")
+	assert.Contains(t, model.statusErr, "aider not found")
 }
 
 // TestResolveAiderBinary_DefaultsToAider verifies that an empty AiderBinary
@@ -1996,8 +1998,8 @@ func TestModel_F_Key_AiderDisabled_SetsError(t *testing.T) {
 	updatedModel, ok := updated.(*Model)
 	require.True(t, ok)
 
-	assert.Nil(t, cmd)
-	assert.Contains(t, updatedModel.Error, "aider_enabled")
+	assert.NotNil(t, cmd, "clearErrorCmd should be returned when aider is disabled")
+	assert.Contains(t, updatedModel.statusErr, "aider_enabled")
 }
 
 // TestModel_F_Key_NoWorktree_SetsError verifies that pressing 'f' with
@@ -2012,8 +2014,8 @@ func TestModel_F_Key_NoWorktree_SetsError(t *testing.T) {
 	updatedModel, ok := updated.(*Model)
 	require.True(t, ok)
 
-	assert.Nil(t, cmd)
-	assert.NotEmpty(t, updatedModel.Error)
+	assert.NotNil(t, cmd, "clearErrorCmd should be returned when no worktree selected")
+	assert.NotEmpty(t, updatedModel.statusErr)
 }
 
 // TestModel_F_Key_WrongView_SetsError verifies that pressing 'f' in a non-worktrees
@@ -2030,8 +2032,8 @@ func TestModel_F_Key_WrongView_SetsError(t *testing.T) {
 	updatedModel, ok := updated.(*Model)
 	require.True(t, ok)
 
-	assert.Nil(t, cmd)
-	assert.Contains(t, updatedModel.Error, "Worktrees view")
+	assert.NotNil(t, cmd, "clearErrorCmd should be returned when in wrong view")
+	assert.Contains(t, updatedModel.statusErr, "Worktrees view")
 }
 
 // TestModel_AiderFilesFetchedMsg_OpensModal verifies that receiving a successful
@@ -2066,9 +2068,9 @@ func TestModel_AiderFilesFetchedMsg_ErrorSetsError(t *testing.T) {
 	m, ok := updated.(*Model)
 	require.True(t, ok)
 
-	assert.Nil(t, cmd)
+	assert.NotNil(t, cmd, "clearErrorCmd should be returned on file fetch error")
 	assert.Nil(t, m.activeModal)
-	assert.Contains(t, m.Error, "Failed to list files")
+	assert.Contains(t, m.statusErr, "Failed to list files")
 }
 
 // TestModel_F_Key_AiderNotOnPath_SetsError verifies that pressing 'f' when
@@ -2086,8 +2088,8 @@ func TestModel_F_Key_AiderNotOnPath_SetsError(t *testing.T) {
 	updatedModel, ok := updated.(*Model)
 	require.True(t, ok)
 
-	assert.Nil(t, cmd)
-	assert.Contains(t, updatedModel.Error, "aider not found",
+	assert.NotNil(t, cmd, "clearErrorCmd should be returned when aider binary is missing")
+	assert.Contains(t, updatedModel.statusErr, "aider not found",
 		"error should mention that the aider binary is missing")
 }
 
@@ -2111,7 +2113,7 @@ func TestModel_SpaceKey_InWorktreeView_WithSelection_OpensAgentLauncher(t *testi
 
 	assert.NotNil(t, next.activeModal, "should open the agent launcher modal")
 	assert.Nil(t, cmd, "no async command needed to open the launcher")
-	assert.Empty(t, next.Error, "no error should be set")
+	assert.Empty(t, next.statusErr, "no error should be set")
 }
 
 // TestModel_SpaceKey_InWorktreeView_NoSelection_SetsError verifies that pressing
@@ -2126,7 +2128,7 @@ func TestModel_SpaceKey_InWorktreeView_NoSelection_SetsError(t *testing.T) {
 	require.True(t, ok)
 
 	assert.Nil(t, next.activeModal, "no modal should open when nothing is selected")
-	assert.Contains(t, next.Error, "No worktree selected")
+	assert.Contains(t, next.statusErr, "No worktree selected")
 }
 
 // TestModel_SpaceKey_NotInWorktreeView_SetsError verifies that pressing [space]
@@ -2140,7 +2142,7 @@ func TestModel_SpaceKey_NotInWorktreeView_SetsError(t *testing.T) {
 	require.True(t, ok)
 
 	assert.Nil(t, next.activeModal, "no modal should open in issues view")
-	assert.Contains(t, next.Error, "Worktrees view")
+	assert.Contains(t, next.statusErr, "Worktrees view")
 }
 
 // TestModel_SpawnAgentMsg_Copilot_ClearsModalAndReturnsCmd verifies that
@@ -2198,7 +2200,7 @@ func TestModel_SpawnAgentMsg_Aider_ClearsModalAndFetchesFiles(t *testing.T) {
 
 	assert.Nil(t, next.activeModal, "modal must be cleared after SpawnAgentMsg")
 	assert.NotNil(t, cmd, "aider should return a fetchAiderFilesCmd")
-	assert.Empty(t, next.Error, "no error should be set when aider is triggered")
+	assert.Empty(t, next.statusErr, "no error should be set when aider is triggered")
 }
 
 // ---------------------------------------------------------------------------
@@ -2248,8 +2250,8 @@ func TestAgentDoneMsg_NonZeroExit_ShowsErrorInStatusBar(t *testing.T) {
 			m, ok := updated.(*Model)
 			require.True(t, ok)
 
-			assert.Equal(t, tt.wantError, m.Error,
-				"Error field should match expected warning for exit code %d", tt.exitCode)
+			assert.Equal(t, tt.wantError, m.statusErr,
+				"statusErr field should match expected warning for exit code %d", tt.exitCode)
 			// agentDoneMsg must always trigger a worktree refresh.
 			assert.NotNil(t, cmd, "agentDoneMsg must return a refreshWorktreesCmd")
 		})
@@ -2269,4 +2271,49 @@ func TestAgentDoneMsg_ZeroExit_TriggersRefresh(t *testing.T) {
 	})
 
 	assert.NotNil(t, cmd, "zero-exit agentDoneMsg must still return a refreshWorktreesCmd")
+}
+
+// ---------------------------------------------------------------------------
+// Phase 4: Error handling & structured logging tests
+// ---------------------------------------------------------------------------
+
+// TestModel_GitError_ShowsErrorModal verifies that a worktreeOpDoneMsg with an error
+// sets the statusErr field and triggers the error modal.
+func TestModel_GitError_ShowsErrorModal(t *testing.T) {
+	m := NewModel()
+	require.NotNil(t, m)
+
+	updated, cmd := m.Update(worktreeOpDoneMsg{err: errors.New("git failed")})
+	updatedModel, ok := updated.(*Model)
+	require.True(t, ok)
+
+	assert.Contains(t, updatedModel.statusErr, "git failed",
+		"statusErr should contain the error message")
+	assert.NotNil(t, cmd, "should return a cmd (refresh + clear timer)")
+}
+
+// TestModel_ErrorModalDismissesOnKeypress verifies that any keypress clears the statusErr.
+func TestModel_ErrorModalDismissesOnKeypress(t *testing.T) {
+	m := NewModel()
+	require.NotNil(t, m)
+	m.statusErr = "some error"
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")})
+	updatedModel, ok := updated.(*Model)
+	require.True(t, ok)
+
+	assert.Empty(t, updatedModel.statusErr, "keypress should clear statusErr")
+}
+
+// TestModel_ErrorModalClearsAfter5s verifies that clearErrorMsg clears the statusErr field.
+func TestModel_ErrorModalClearsAfter5s(t *testing.T) {
+	m := NewModel()
+	require.NotNil(t, m)
+	m.statusErr = "some error"
+
+	updated, _ := m.Update(clearErrorMsg{})
+	updatedModel, ok := updated.(*Model)
+	require.True(t, ok)
+
+	assert.Empty(t, updatedModel.statusErr, "clearErrorMsg should clear statusErr")
 }

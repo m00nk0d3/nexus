@@ -66,6 +66,16 @@ type aiderFilesFetchedMsg struct {
 	err          error
 }
 
+// clearErrorMsg is dispatched after the 5-second auto-dismiss timer fires.
+type clearErrorMsg struct{}
+
+// clearErrorCmd returns a Cmd that fires clearErrorMsg after 5 seconds.
+func clearErrorCmd() tea.Cmd {
+	return tea.Tick(5*time.Second, func(t time.Time) tea.Msg {
+		return clearErrorMsg{}
+	})
+}
+
 // activeView represents the currently active main panel view.
 type activeView int
 
@@ -93,7 +103,7 @@ type Model struct {
 	Config           *domain.Config       // Loaded application configuration
 	selectedIdx      int                  // Currently selected worktree index
 	activeModal      modal.Modal          // Currently open modal (if any)
-	Error            string               // Error message to display (if any)
+	statusErr        string               // Error message to display (if any)
 	themeIdx         int                  // Index into styles.Themes for the active theme
 	view             activeView           // Currently active main panel view
 	width            int                  // Terminal width in columns; 0 means use default
@@ -139,10 +149,10 @@ func NewModel() *Model {
 	}
 
 	return &Model{
-		Config:   cfg,
-		themeIdx: themeIdx,
-		Error:    configErr,
-		focused:  panelList,
+		Config:    cfg,
+		themeIdx:  themeIdx,
+		statusErr: configErr,
+		focused:   panelList,
 	}
 }
 
@@ -251,7 +261,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		// Dismiss any visible error overlay on the next keypress.
-		m.Error = ""
+		m.statusErr = ""
 		switch msg.Type {
 		case tea.KeyTab:
 			m.focused = (m.focused + 1) % panelCount
@@ -267,8 +277,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// Guard: if any existing worktree already uses this branch, show an error.
 				for _, wt := range m.Worktrees {
 					if wt.Branch == pr.Branch {
-						m.Error = fmt.Sprintf("Worktree for branch %q already exists at %s", pr.Branch, wt.Path)
-						return m, nil
+						m.statusErr = fmt.Sprintf("Worktree for branch %q already exists at %s", pr.Branch, wt.Path)
+						return m, clearErrorCmd()
 					}
 				}
 				m.activeModal = modal.NewPRCheckoutModal(pr, path)
@@ -298,30 +308,30 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.moveDown()
 		case tea.KeySpace:
 			if m.view != viewWorktrees {
-				m.Error = "Agent launcher is only available in the Worktrees view — press w to switch"
-				return m, nil
+				m.statusErr = "Agent launcher is only available in the Worktrees view — press w to switch"
+				return m, clearErrorCmd()
 			}
 			if selected, ok := m.selectedWorktree(); ok {
 				m.activeModal = modal.NewAgentLauncherModal(m.Config, selected.Path)
-			} else {
-				m.Error = "No worktree selected — select one first"
+				return m, nil
 			}
-			return m, nil
+			m.statusErr = "No worktree selected — select one first"
+			return m, clearErrorCmd()
 		case tea.KeyRunes:
 			switch msg.String() {
 			case " ":
 				// Spacebar can arrive as KeyRunes " " on some terminals (e.g. Windows).
 				// Mirror the KeySpace handler above.
 				if m.view != viewWorktrees {
-					m.Error = "Agent launcher is only available in the Worktrees view — press w to switch"
-					return m, nil
+					m.statusErr = "Agent launcher is only available in the Worktrees view — press w to switch"
+					return m, clearErrorCmd()
 				}
 				if selected, ok := m.selectedWorktree(); ok {
 					m.activeModal = modal.NewAgentLauncherModal(m.Config, selected.Path)
-				} else {
-					m.Error = "No worktree selected — select one first"
+					return m, nil
 				}
-				return m, nil
+				m.statusErr = "No worktree selected — select one first"
+				return m, clearErrorCmd()
 			case "?":
 				m.activeModal = modal.NewHelpModal()
 				return m, nil
@@ -352,20 +362,20 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			case "c", "C":
 				if m.view != viewWorktrees {
-					m.Error = "Copilot (c) is only available in the Worktrees view — press w to switch"
-					return m, nil
+					m.statusErr = "Copilot (c) is only available in the Worktrees view — press w to switch"
+					return m, clearErrorCmd()
 				}
 				if !m.Config.AIAgents.CopilotEnabled {
-					m.Error = "Copilot is disabled — set copilot_enabled = true in ~/.nexus/config.toml"
-					return m, nil
+					m.statusErr = "Copilot is disabled — set copilot_enabled = true in ~/.nexus/config.toml"
+					return m, clearErrorCmd()
 				}
 				if _, ok := m.selectedWorktree(); !ok {
-					m.Error = "No worktree selected — select one first"
-					return m, nil
+					m.statusErr = "No worktree selected — select one first"
+					return m, clearErrorCmd()
 				}
 				if _, err := exec.LookPath("gh"); err != nil {
-					m.Error = "gh not found on $PATH — install GitHub CLI to use Copilot"
-					return m, nil
+					m.statusErr = "gh not found on $PATH — install GitHub CLI to use Copilot"
+					return m, clearErrorCmd()
 				}
 				ti := textinput.New()
 				ti.Placeholder = "Enter Copilot prompt…"
@@ -375,20 +385,20 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, focusCmd
 			case "a", "A":
 				if m.view != viewWorktrees {
-					m.Error = "Claude (a) is only available in the Worktrees view — press w to switch"
-					return m, nil
+					m.statusErr = "Claude (a) is only available in the Worktrees view — press w to switch"
+					return m, clearErrorCmd()
 				}
 				if !m.Config.AIAgents.ClaudeEnabled {
-					m.Error = "Claude is disabled — set claude_enabled = true in ~/.nexus/config.toml"
-					return m, nil
+					m.statusErr = "Claude is disabled — set claude_enabled = true in ~/.nexus/config.toml"
+					return m, clearErrorCmd()
 				}
 				if _, ok := m.selectedWorktree(); !ok {
-					m.Error = "No worktree selected — select one first"
-					return m, nil
+					m.statusErr = "No worktree selected — select one first"
+					return m, clearErrorCmd()
 				}
 				if _, err := resolveClaudeBinary(m.Config); err != nil {
-					m.Error = fmt.Sprintf("claude binary not found: %v", err)
-					return m, nil
+					m.statusErr = fmt.Sprintf("claude binary not found: %v", err)
+					return m, clearErrorCmd()
 				}
 				ti := textinput.New()
 				ti.Placeholder = "Enter Claude prompt…"
@@ -398,21 +408,21 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, focusCmd
 			case "f", "F":
 				if m.view != viewWorktrees {
-					m.Error = "Aider (f) is only available in the Worktrees view — press w to switch"
-					return m, nil
+					m.statusErr = "Aider (f) is only available in the Worktrees view — press w to switch"
+					return m, clearErrorCmd()
 				}
 				if !m.Config.AIAgents.AiderEnabled {
-					m.Error = "Aider is disabled — set aider_enabled = true in ~/.nexus/config.toml"
-					return m, nil
+					m.statusErr = "Aider is disabled — set aider_enabled = true in ~/.nexus/config.toml"
+					return m, clearErrorCmd()
 				}
 				selected, ok := m.selectedWorktree()
 				if !ok {
-					m.Error = "No worktree selected — select one first"
-					return m, nil
+					m.statusErr = "No worktree selected — select one first"
+					return m, clearErrorCmd()
 				}
 				if _, err := resolveAiderBinary(m.Config); err != nil {
-					m.Error = "aider not found on $PATH — install Aider to use this feature"
-					return m, nil
+					m.statusErr = "aider not found on $PATH — install Aider to use this feature"
+					return m, clearErrorCmd()
 				}
 				return m, m.fetchAiderFilesCmd(selected.Path)
 			}
@@ -425,22 +435,27 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case aiderFilesFetchedMsg:
 		if msg.err != nil {
-			m.Error = fmt.Sprintf("Failed to list files: %v", msg.err)
-			return m, nil
+			m.statusErr = fmt.Sprintf("Failed to list files: %v", msg.err)
+			return m, clearErrorCmd()
 		}
 		m.activeModal = modal.NewAiderFilePicker(msg.files)
 		return m, nil
 
 	case worktreeOpDoneMsg:
 		// Refresh the worktree list after an add/remove operation.
+		// Surface any git error via the status error modal.
+		if msg.err != nil {
+			m.statusErr = fmt.Sprintf("Git operation failed: %v", msg.err)
+			return m, tea.Batch(m.refreshWorktreesCmd(), clearErrorCmd())
+		}
 		return m, m.refreshWorktreesCmd()
 
 	case worktreeSwitchedMsg:
 		if msg.err != nil {
-			m.Error = fmt.Sprintf("Failed to switch worktree: %v", msg.err)
-			return m, nil
+			m.statusErr = fmt.Sprintf("Failed to switch worktree: %v", msg.err)
+			return m, clearErrorCmd()
 		}
-		m.Error = ""
+		m.statusErr = ""
 		// Refresh worktrees after switching back
 		return m, m.refreshWorktreesCmd()
 
@@ -457,7 +472,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case browserOpenErrMsg:
 		if msg.err != nil {
-			m.Error = fmt.Sprintf("Failed to open in browser: %v", msg.err)
+			m.statusErr = fmt.Sprintf("Failed to open in browser: %v", msg.err)
+			return m, clearErrorCmd()
 		}
 
 	case agentDoneMsg:
@@ -474,17 +490,28 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				EndedAt:   time.Now(),
 			}
 			if err := data.LogAgentRun(m.db, entry); err != nil {
-				m.Error = fmt.Sprintf("failed to log agent run: %v", err)
+				m.statusErr = fmt.Sprintf("failed to log agent run: %v", err)
 			}
 		}
 		if msg.exitCode > 1 {
-			m.Error = fmt.Sprintf("⚠ Agent exited with code %d", msg.exitCode)
+			exitMsg := fmt.Sprintf("⚠ Agent exited with code %d", msg.exitCode)
+			if m.statusErr != "" {
+				m.statusErr = m.statusErr + "; " + exitMsg
+			} else {
+				m.statusErr = exitMsg
+			}
+		}
+		if m.statusErr != "" {
+			return m, tea.Batch(m.refreshWorktreesCmd(), clearErrorCmd())
 		}
 		return m, m.refreshWorktreesCmd()
 
 	case githubSyncedMsg:
 		m.syncing = false
 		m.syncErr = msg.err
+		if msg.err != nil {
+			m.statusErr = fmt.Sprintf("GitHub sync failed: %v", msg.err)
+		}
 		if msg.err == nil {
 			m.prs = msg.prs
 			m.issues = msg.issues
@@ -496,9 +523,16 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// On error, m.prs and m.issues intentionally retain their previous values
 		// so the UI continues to show the last known good data.
 		// Schedule next periodic sync tick.
-		return m, tea.Tick(m.Config.GitHub.SyncInterval(), func(t time.Time) tea.Msg {
+		nextTick := tea.Tick(m.Config.GitHub.SyncInterval(), func(t time.Time) tea.Msg {
 			return syncTickMsg{}
 		})
+		if msg.err != nil {
+			return m, tea.Batch(nextTick, clearErrorCmd())
+		}
+		return m, nextTick
+
+	case clearErrorMsg:
+		m.statusErr = ""
 
 	case syncTickMsg:
 		m.syncing = true
@@ -548,8 +582,8 @@ func (m *Model) View() string {
 			fmt.Sprintf("> %s\n\nEnter confirm (prompt optional)  •  Esc cancel", m.claudePromptInput.View()))
 	}
 
-	if m.Error != "" {
-		return overlay("⚠ Error", m.Error+"\n\nPress any key to dismiss")
+	if m.statusErr != "" {
+		return renderErrorModal(m.statusErr, w, h, baseView)
 	}
 
 	return baseView
@@ -721,8 +755,8 @@ func buildClaudeCmd(worktreePath, prompt, binaryPath string) *exec.Cmd {
 func (m *Model) spawnClaudeCmd(worktreePath, prompt string) tea.Cmd {
 	binaryPath, err := resolveClaudeBinary(m.Config)
 	if err != nil {
-		m.Error = fmt.Sprintf("claude binary not found: %v", err)
-		return nil
+		m.statusErr = fmt.Sprintf("claude binary not found: %v", err)
+		return clearErrorCmd()
 	}
 	startedAt := time.Now()
 	cmd := buildClaudeCmd(worktreePath, prompt, binaryPath)
@@ -764,8 +798,8 @@ func buildAiderCmd(worktreePath string, files []string, binaryPath string) *exec
 func (m *Model) spawnAiderCmd(worktreePath string, files []string) tea.Cmd {
 	binaryPath, err := resolveAiderBinary(m.Config)
 	if err != nil {
-		m.Error = fmt.Sprintf("aider not found: %v", err)
-		return nil
+		m.statusErr = fmt.Sprintf("aider not found: %v", err)
+		return clearErrorCmd()
 	}
 	startedAt := time.Now()
 	cmd := buildAiderCmd(worktreePath, files, binaryPath)

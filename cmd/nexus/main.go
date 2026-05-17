@@ -2,14 +2,28 @@ package main
 
 import (
 	"fmt"
+	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/m00nk0d3/nexus/internal/data"
+	"github.com/m00nk0d3/nexus/internal/logging"
 )
 
 func run() error {
+	// Initialise structured logger; non-fatal if it fails (falls back to discard).
+	// Sets it as the slog default so any log.slog.Info/Warn/Error calls in the
+	// codebase are automatically routed to the log file.
+	logger, logCloser, err := logging.InitLogger(logging.DefaultLogPath())
+	if err != nil {
+		logger = slog.New(slog.NewJSONHandler(io.Discard, nil))
+	} else {
+		defer logCloser.Close()
+	}
+	slog.SetDefault(logger)
+
 	cwd, err := os.Getwd()
 	if err != nil {
 		return fmt.Errorf("failed to get working directory: %w", err)
