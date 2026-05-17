@@ -1332,10 +1332,10 @@ func TestBuildCopilotCmd_BuildsCorrectCommand(t *testing.T) {
 			wantDir:      "/repo/feat-branch",
 		},
 		{
-			name:         "empty prompt omits prompt arg",
+			name:         "empty prompt runs gh copilot without -i",
 			worktreePath: "/tmp/my-worktree",
 			prompt:       "",
-			wantArgs:     []string{"gh", "copilot", "-i"},
+			wantArgs:     []string{"gh", "copilot"},
 			wantDir:      "/tmp/my-worktree",
 		},
 	}
