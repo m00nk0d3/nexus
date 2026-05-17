@@ -418,14 +418,23 @@ func (m *Model) View() string {
 		return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, prompt)
 	}
 
-	// When the Claude inline prompt is active, overlay it on top of the normal view.
+	// When the Claude inline prompt is active, center it over the base view.
+	// Prepending it would make the total view taller than the terminal, causing
+	// Bubbletea to scroll the prompt into the scrollback buffer (invisible to user).
 	if m.claudePromptActive {
 		theme := styles.NewTheme(styles.Themes[m.themeIdx])
 		prompt := theme.RenderBox(
 			"Spawn Claude Code",
 			fmt.Sprintf("> %s\n\nEnter confirm  •  Esc cancel", m.claudePromptInput.View()),
 		)
-		return fmt.Sprintf("%s\n\n%s", prompt, baseView)
+		w, h := m.width, m.height
+		if w <= 0 {
+			w = defaultTermWidth
+		}
+		if h <= 0 {
+			h = 24
+		}
+		return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, prompt)
 	}
 
 	if m.Error == "" {
