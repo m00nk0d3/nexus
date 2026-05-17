@@ -47,6 +47,14 @@ type githubSyncedMsg struct {
 // syncTickMsg triggers the next periodic GitHub sync.
 type syncTickMsg struct{}
 
+// debouncedRenderMsg fires after the debounce delay to apply pending sync data.
+type debouncedRenderMsg struct{}
+
+// lazyLoadContextMsg fires after the hover delay to load worktree context.
+type lazyLoadContextMsg struct {
+	worktree domain.Worktree
+}
+
 // browserOpenErrMsg carries an error from opening an issue or PR in the browser.
 type browserOpenErrMsg struct{ err error }
 
@@ -76,6 +84,33 @@ func clearErrorCmd() tea.Cmd {
 	})
 }
 
+// debouncedRenderCmd schedules a debouncedRenderMsg after delay.
+func debouncedRenderCmd(delay time.Duration) tea.Cmd {
+	return tea.Tick(delay, func(t time.Time) tea.Msg {
+		return debouncedRenderMsg{}
+	})
+}
+
+// lazyLoadContextCmd fetches PR details for the selected worktree from SQLite
+// after a short hover delay, avoiding expensive fetches on rapid navigation.
+func (m *Model) lazyLoadContextCmd(worktree domain.Worktree) tea.Cmd {
+	return tea.Tick(200*time.Millisecond, func(t time.Time) tea.Msg {
+		return lazyLoadContextMsg{worktree: worktree}
+	})
+}
+
+// maybeLazyLoadCmd returns a lazyLoadContextCmd if we're in the worktrees view
+// and there is a selected worktree, otherwise nil.
+func (m *Model) maybeLazyLoadCmd() tea.Cmd {
+	if m.view != viewWorktrees {
+		return nil
+	}
+	if selected, ok := m.selectedWorktree(); ok {
+		return m.lazyLoadContextCmd(selected)
+	}
+	return nil
+}
+
 // activeView represents the currently active main panel view.
 type activeView int
 
@@ -94,6 +129,8 @@ const (
 	panelCtx                       // Right context panel
 	panelCount                     // Sentinel — used for modular cycling via (p+1)%panelCount
 )
+
+const pageSize = 50
 
 // Model represents the root Bubbletea model for the Nexus TUI application.
 // It manages the list of git worktrees, user interactions, and active modals.
@@ -117,6 +154,15 @@ type Model struct {
 	selectedPRIdx    int                  // Currently selected PR index
 	focused          focusedPanel         // Which panel currently has keyboard focus
 	ctxScrollOffset  int                  // Scroll position within the context panel
+
+	// Pagination state
+	currentPage int // 0-based current page index for issues/PRs lists
+
+	// Debounce state
+	pendingSync *githubSyncedMsg // pending sync data waiting for debounce timer
+
+	// Lazy load state
+	lazyLoadTimer *time.Timer // timer for debounced worktree context load
 
 	// DB is optional; when non-nil, agent runs are logged to agent_history.
 	db *data.DB
@@ -319,8 +365,16 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case tea.KeyUp:
 			m.moveUp()
+			return m, m.maybeLazyLoadCmd()
 		case tea.KeyDown:
 			m.moveDown()
+			return m, m.maybeLazyLoadCmd()
+		case tea.KeyPgDown:
+			m.nextPage()
+			return m, nil
+		case tea.KeyPgUp:
+			m.prevPage()
+			return m, nil
 		case tea.KeySpace:
 			if m.view != viewWorktrees {
 				m.statusErr = "Agent launcher is only available in the Worktrees view — press w to switch"
@@ -352,21 +406,27 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			case "j":
 				m.moveDown()
-				return m, nil
+				return m, m.maybeLazyLoadCmd()
 			case "k":
 				m.moveUp()
-				return m, nil
+				return m, m.maybeLazyLoadCmd()
 			case "t":
 				m.activeModal = modal.NewSettingsModal(m.Config, data.DefaultConfigPath())
 			case "w", "W":
 				m.view = viewWorktrees
 				m.ctxScrollOffset = 0
+				m.currentPage = 0
 			case "i", "I":
 				m.view = viewIssues
 				m.ctxScrollOffset = 0
+				m.currentPage = 0
 			case "p", "P":
 				m.view = viewPRs
 				m.ctxScrollOffset = 0
+				m.currentPage = 0
+			case "n":
+				m.nextPage()
+				return m, nil
 			case "g", "G":
 				return m, m.openInBrowserCmd()
 			case "s", "S":
@@ -522,29 +582,40 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.refreshWorktreesCmd()
 
 	case githubSyncedMsg:
-		m.syncing = false
-		m.syncErr = msg.err
-		if msg.err != nil {
-			m.statusErr = fmt.Sprintf("GitHub sync failed: %v", msg.err)
+		// Store pending data and schedule debounce render instead of immediate update.
+		m.pendingSync = &msg
+		return m, debouncedRenderCmd(100 * time.Millisecond)
+
+	case debouncedRenderMsg:
+		if m.pendingSync != nil {
+			pending := m.pendingSync
+			m.pendingSync = nil
+			m.syncing = false
+			m.syncErr = pending.err
+			if pending.err != nil {
+				m.statusErr = fmt.Sprintf("GitHub sync failed: %v", pending.err)
+			}
+			if pending.err == nil {
+				m.prs = pending.prs
+				m.issues = pending.issues
+				m.lastSynced = pending.syncedAt
+				m.clampIssueIdx()
+				m.clampPRIdx()
+			}
+			nextTick := tea.Tick(m.Config.GitHub.SyncInterval(), func(t time.Time) tea.Msg {
+				return syncTickMsg{}
+			})
+			if pending.err != nil {
+				return m, tea.Batch(nextTick, clearErrorCmd())
+			}
+			return m, nextTick
 		}
-		if msg.err == nil {
-			m.prs = msg.prs
-			m.issues = msg.issues
-			m.lastSynced = msg.syncedAt
-			// Clamp per-view selection indices after a sync in case the list shrank.
-			m.clampIssueIdx()
-			m.clampPRIdx()
-		}
-		// On error, m.prs and m.issues intentionally retain their previous values
-		// so the UI continues to show the last known good data.
-		// Schedule next periodic sync tick.
-		nextTick := tea.Tick(m.Config.GitHub.SyncInterval(), func(t time.Time) tea.Msg {
-			return syncTickMsg{}
-		})
-		if msg.err != nil {
-			return m, tea.Batch(nextTick, clearErrorCmd())
-		}
-		return m, nextTick
+
+	case lazyLoadContextMsg:
+		// Context data is loaded from SQLite on hover; currently a no-op placeholder
+		// because worktree context is rendered directly from m.Worktrees.
+		// This hook exists for future lazy-load enrichment.
+		_ = msg
 
 	case clearErrorMsg:
 		m.statusErr = ""
@@ -563,7 +634,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // View returns a string representation of the model's current state.
 func (m *Model) View() string {
-	baseView := renderFull(m.Worktrees, m.selectedIdx, m.RepoPath, m.themeIdx, m.view, m.width, m.height, m.syncing, m.lastSynced, m.syncErr, m.issues, m.selectedIssueIdx, m.prs, m.selectedPRIdx, m.focused, m.ctxScrollOffset)
+	baseView := renderFull(m.Worktrees, m.selectedIdx, m.RepoPath, m.themeIdx, m.view, m.width, m.height, m.syncing, m.lastSynced, m.syncErr, m.issues, m.selectedIssueIdx, m.prs, m.selectedPRIdx, m.focused, m.ctxScrollOffset, m.currentPage)
 
 	w, h := m.width, m.height
 	if w <= 0 {
@@ -644,7 +715,26 @@ func (m *Model) fetchIssuesCmd() tea.Cmd {
 // syncGitHubCmd returns a Cmd that fetches open PRs and issues from GitHub in the background.
 func (m *Model) syncGitHubCmd() tea.Cmd {
 	repoPath := m.RepoPath
+	db := m.db
+	ttl := m.Config.GitHub.SyncInterval()
 	return func() tea.Msg {
+		// If db is available, check cache staleness before hitting the CLI.
+		if db != nil {
+			prStale, _ := data.IsCacheStale(db, "github_prs", ttl)
+			issStale, _ := data.IsCacheStale(db, "github_issues", ttl)
+			if !prStale && !issStale {
+				// Cache is fresh — return cached rows without calling gh.
+				repo := data.NewGitHubRepository(db)
+				prs, err := repo.GetPRs()
+				if err == nil {
+					issues, err2 := repo.GetIssues()
+					if err2 == nil {
+						return githubSyncedMsg{prs: prs, issues: issues, syncedAt: time.Now()}
+					}
+				}
+				// If reading cache fails, fall through to CLI sync.
+			}
+		}
 		issueCmd := internalexec.NewIssueCommand(repoPath)
 		prCmd := internalexec.NewPRCommand(repoPath)
 		issues, issErr := issueCmd.ListOpenIssues()
@@ -934,6 +1024,37 @@ func (m *Model) clampPRIdx() {
 	}
 	if m.selectedPRIdx >= len(m.prs) {
 		m.selectedPRIdx = len(m.prs) - 1
+	}
+}
+
+// nextPage advances to the next page for the current list view (issues or PRs).
+func (m *Model) nextPage() {
+	switch m.view {
+	case viewIssues:
+		maxPage := (len(m.issues) - 1) / pageSize
+		if m.currentPage < maxPage {
+			m.currentPage++
+			m.selectedIssueIdx = m.currentPage * pageSize
+		}
+	case viewPRs:
+		maxPage := (len(m.prs) - 1) / pageSize
+		if m.currentPage < maxPage {
+			m.currentPage++
+			m.selectedPRIdx = m.currentPage * pageSize
+		}
+	}
+}
+
+// prevPage retreats to the previous page for the current list view.
+func (m *Model) prevPage() {
+	if m.currentPage > 0 {
+		m.currentPage--
+		switch m.view {
+		case viewIssues:
+			m.selectedIssueIdx = m.currentPage * pageSize
+		case viewPRs:
+			m.selectedPRIdx = m.currentPage * pageSize
+		}
 	}
 }
 

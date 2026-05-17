@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"fmt"
 	"os/exec"
 	"strings"
 	"testing"
@@ -583,9 +584,14 @@ func TestModel_GithubSyncedMsg_StoresPRsAndIssues(t *testing.T) {
 			model := NewModel()
 			require.NotNil(t, model)
 
+			// githubSyncedMsg now queues into pendingSync (debounce); fire the
+			// debounce flush to actually apply the state.
 			updated, _ := model.Update(tt.msg)
 			m, ok := updated.(*Model)
 			require.True(t, ok, "Update must return *Model")
+			updated2, _ := m.Update(debouncedRenderMsg{})
+			m, ok = updated2.(*Model)
+			require.True(t, ok, "debouncedRenderMsg must return *Model")
 
 			if tt.wantPRLen > 0 {
 				require.Len(t, m.prs, tt.wantPRLen, "prs slice length mismatch")
@@ -934,8 +940,12 @@ func TestModel_GithubSync_ClampsIssueAndPRIdx(t *testing.T) {
 				prs:      tt.syncPRs,
 				syncedAt: time.Now(),
 			}
+			// githubSyncedMsg now uses debounce; fire the flush to apply the state.
 			updated, _ := model.Update(msg)
 			m, ok := updated.(*Model)
+			require.True(t, ok)
+			updated2, _ := m.Update(debouncedRenderMsg{})
+			m, ok = updated2.(*Model)
 			require.True(t, ok)
 
 			assert.Equal(t, tt.wantIssueIdx, m.selectedIssueIdx, "issue idx must be clamped")
@@ -2279,3 +2289,74 @@ func TestModel_ErrorModalClearsAfter5s(t *testing.T) {
 
 	assert.Empty(t, updatedModel.statusErr, "clearErrorMsg should clear statusErr")
 }
+
+// ---------------------------------------------------------------------------
+// Phase 4: Pagination & debounce tests
+// ---------------------------------------------------------------------------
+
+func TestPagination_NextPageAdvancesIndex(t *testing.T) {
+	// Build a model with 120 issues (> pageSize of 50)
+	m := NewModel()
+	for i := 1; i <= 120; i++ {
+		m.issues = append(m.issues, domain.Issue{Number: i, Title: fmt.Sprintf("Issue %d", i)})
+	}
+	m.view = viewIssues
+
+	assert.Equal(t, 0, m.currentPage, "starts on page 0")
+
+	// Simulate pressing n (next page)
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}})
+	m2 := updated.(*Model)
+	assert.Equal(t, 1, m2.currentPage, "after n: page 1")
+	assert.Equal(t, pageSize, m2.selectedIssueIdx, "selectedIssueIdx jumps to page start")
+
+	// Pressing n again (page 2)
+	updated2, _ := m2.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}})
+	m3 := updated2.(*Model)
+	assert.Equal(t, 2, m3.currentPage, "after second n: page 2")
+
+	// Pressing n at last page doesn't go further
+	updated3, _ := m3.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}})
+	m4 := updated3.(*Model)
+	assert.Equal(t, 2, m4.currentPage, "clamped at last page")
+
+	// Press PageUp to go back
+	updated4, _ := m4.Update(tea.KeyMsg{Type: tea.KeyPgUp})
+	m5 := updated4.(*Model)
+	assert.Equal(t, 1, m5.currentPage, "PageUp: back to page 1")
+}
+
+func TestDebounce_CollapsesRapidUpdates(t *testing.T) {
+	m := NewModel()
+
+	// First sync arrives — should set pendingSync and NOT immediately update m.prs
+	msg1 := githubSyncedMsg{
+		prs:      []domain.PullRequest{{Number: 1, Title: "PR 1"}},
+		issues:   []domain.Issue{},
+		syncedAt: time.Now(),
+	}
+	updated, cmd := m.Update(msg1)
+	m2 := updated.(*Model)
+
+	assert.NotNil(t, m2.pendingSync, "pendingSync should be set after first sync")
+	assert.Empty(t, m2.prs, "prs should NOT be updated immediately (debounced)")
+	assert.NotNil(t, cmd, "debounce Cmd should be scheduled")
+
+	// Second sync arrives before debounce fires — overwrites pending
+	msg2 := githubSyncedMsg{
+		prs:      []domain.PullRequest{{Number: 2, Title: "PR 2"}},
+		issues:   []domain.Issue{},
+		syncedAt: time.Now(),
+	}
+	updated2, _ := m2.Update(msg2)
+	m3 := updated2.(*Model)
+	assert.Equal(t, 2, m3.pendingSync.prs[0].Number, "pending sync updated to latest")
+
+	// Now debounce fires — pending data should be applied
+	updated3, _ := m3.Update(debouncedRenderMsg{})
+	m4 := updated3.(*Model)
+	assert.Nil(t, m4.pendingSync, "pendingSync cleared after debounce fires")
+	require.Len(t, m4.prs, 1, "prs updated after debounce")
+	assert.Equal(t, 2, m4.prs[0].Number, "latest PR applied")
+}
+
