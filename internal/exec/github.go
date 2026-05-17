@@ -90,6 +90,72 @@ func parseIssueList(raw string) ([]domain.Issue, error) {
 	return issues, nil
 }
 
+// GetRepoOwnerAndName returns the GitHub repository owner login and repo name via gh CLI.
+func (c *IssueCommand) GetRepoOwnerAndName() (string, string, error) {
+	output, err := c.runner(c.repoPath, "repo", "view", "--json", "owner,name")
+	if err != nil {
+		return "", "", fmt.Errorf("get repo owner and name: %w", err)
+	}
+	var result struct {
+		Owner struct {
+			Login string `json:"login"`
+		} `json:"owner"`
+		Name string `json:"name"`
+	}
+	if err := json.Unmarshal([]byte(output), &result); err != nil {
+		return "", "", fmt.Errorf("parse repo owner and name: %w", err)
+	}
+	return result.Owner.Login, result.Name, nil
+}
+
+// FetchIssueHierarchy fetches sub-issue relationships for the given issue numbers.
+// Returns map[parentNumber][]childNumbers.
+// Returns nil, nil on any API error (graceful fallback — hierarchy data is optional).
+func (c *IssueCommand) FetchIssueHierarchy(numbers []int, owner, repo string) (map[int][]int, error) {
+	if len(numbers) == 0 {
+		return nil, nil
+	}
+	result := make(map[int][]int)
+	for _, num := range numbers {
+		query := fmt.Sprintf(
+			`{ repository(owner: "%s", name: "%s") { issue(number: %d) { number subIssues { nodes { number } } } } }`,
+			owner, repo, num,
+		)
+		output, err := c.runner(c.repoPath, "api", "graphql",
+			"-H", "GraphQL-Features: sub_issues",
+			"-f", "query="+query,
+		)
+		if err != nil {
+			return nil, nil // graceful fallback
+		}
+		var resp struct {
+			Data struct {
+				Repository struct {
+					Issue struct {
+						Number    int `json:"number"`
+						SubIssues struct {
+							Nodes []struct {
+								Number int `json:"number"`
+							} `json:"nodes"`
+						} `json:"subIssues"`
+					} `json:"issue"`
+				} `json:"repository"`
+			} `json:"data"`
+		}
+		if err := json.Unmarshal([]byte(output), &resp); err != nil {
+			return nil, nil // graceful fallback
+		}
+		if len(resp.Data.Repository.Issue.SubIssues.Nodes) > 0 {
+			children := make([]int, 0, len(resp.Data.Repository.Issue.SubIssues.Nodes))
+			for _, node := range resp.Data.Repository.Issue.SubIssues.Nodes {
+				children = append(children, node.Number)
+			}
+			result[num] = children
+		}
+	}
+	return result, nil
+}
+
 // PRCommand wraps the gh CLI for GitHub pull request operations.
 type PRCommand struct {
 	repoPath string
