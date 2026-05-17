@@ -2,10 +2,12 @@ package main
 
 import (
 	"errors"
+	"os/exec"
 	"testing"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/m00nk0d3/nexus/internal/data"
 	"github.com/m00nk0d3/nexus/internal/domain"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -1143,7 +1145,7 @@ func TestModel_WindowSizeMsg_StoresDimensions(t *testing.T) {
 }
 
 
-// TestModelUpdate_SKeyOpensShellInWorktree verifies that pressing "s" in
+// TestModelUpdate_SKeyOpensShellInWorktreeverifies that pressing "s" in
 // viewWorktrees with a selected worktree triggers switchWorktreeCmd.
 func TestModelUpdate_SKeyOpensShellInWorktree(t *testing.T) {
 tests := []struct {
@@ -1192,3 +1194,262 @@ assert.NotNil(t, cmd, "expected a non-nil cmd from switchWorktreeCmd")
 })
 }
 }
+
+// ---------------------------------------------------------------------------
+// Phase 3: GitHub Copilot launcher tests
+// ---------------------------------------------------------------------------
+
+// newTestDB is a test helper that opens an in-memory SQLite DB for tests
+// that need to exercise the DB logging path on the Model.
+func newTestDB(t *testing.T) (*data.DB, error) {
+	t.Helper()
+	db, err := data.NewDB(":memory:")
+	if err != nil {
+		return nil, err
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	return db, nil
+}
+
+// TestModel_C_Key_TriggersCopilotPrompt verifies that pressing 'c' with
+// CopilotEnabled=true and a selected worktree activates the copilot prompt
+// input. When CopilotEnabled=false or no worktree exists, it is a no-op.
+func TestModel_C_Key_TriggersCopilotPrompt(t *testing.T) {
+	tests := []struct {
+		name             string
+		copilotEnabled   bool
+		hasWorktree      bool
+		wantPromptActive bool
+	}{
+		{
+			name:             "c key with disabled config does nothing",
+			copilotEnabled:   false,
+			hasWorktree:      true,
+			wantPromptActive: false,
+		},
+		{
+			name:             "c key with no worktree does nothing",
+			copilotEnabled:   true,
+			hasWorktree:      false,
+			wantPromptActive: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			model := NewModel()
+			model.Config.AIAgents.CopilotEnabled = tt.copilotEnabled
+			model.view = viewWorktrees
+			if tt.hasWorktree {
+				model.Worktrees = []domain.Worktree{
+					{Path: "/tmp/wt", Branch: "main", CommitSHA: "abc"},
+				}
+			}
+
+			updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("c")})
+			updatedModel, ok := updated.(*Model)
+			require.True(t, ok)
+
+			assert.False(t, updatedModel.copilotPromptActive,
+				"copilotPromptActive should be false")
+		})
+	}
+
+	// Separate sub-test for the "gh on PATH" happy path, skipped if gh is absent.
+	t.Run("c key with enabled config and selected worktree activates prompt", func(t *testing.T) {
+		if _, err := exec.LookPath("gh"); err != nil {
+			t.Skip("gh not on PATH; skipping test that requires gh CLI")
+		}
+
+		model := NewModel()
+		model.Config.AIAgents.CopilotEnabled = true
+		model.view = viewWorktrees
+		model.Worktrees = []domain.Worktree{
+			{Path: "/tmp/wt", Branch: "main", CommitSHA: "abc"},
+		}
+
+		updated, cmd := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("c")})
+		updatedModel, ok := updated.(*Model)
+		require.True(t, ok)
+
+		assert.True(t, updatedModel.copilotPromptActive,
+			"copilotPromptActive should be true when gh is on PATH")
+		assert.NotNil(t, cmd, "textinput.Init() should return a non-nil cmd")
+	})
+
+	// Verify that 'c' in a non-worktree view does nothing even when enabled.
+	t.Run("c key in issues view does nothing even when enabled", func(t *testing.T) {
+		model := NewModel()
+		model.Config.AIAgents.CopilotEnabled = true
+		model.view = viewIssues
+		model.Worktrees = []domain.Worktree{
+			{Path: "/tmp/wt", Branch: "main", CommitSHA: "abc"},
+		}
+
+		updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("c")})
+		updatedModel, ok := updated.(*Model)
+		require.True(t, ok)
+
+		assert.False(t, updatedModel.copilotPromptActive,
+			"copilotPromptActive should stay false when not in worktrees view")
+	})
+}
+
+// TestBuildCopilotCmd_BuildsCorrectCommand verifies that buildCopilotCmd
+// produces the right exec.Cmd args and working directory.
+func TestBuildCopilotCmd_BuildsCorrectCommand(t *testing.T) {
+	tests := []struct {
+		name         string
+		worktreePath string
+		prompt       string
+		wantArgs     []string
+		wantDir      string
+	}{
+		{
+			name:         "simple prompt",
+			worktreePath: "/tmp/my-worktree",
+			prompt:       "fix the null pointer",
+			wantArgs:     []string{"gh", "copilot", "suggest", "fix the null pointer"},
+			wantDir:      "/tmp/my-worktree",
+		},
+		{
+			name:         "multi-word prompt",
+			worktreePath: "/repo/feat-branch",
+			prompt:       "add unit tests for auth handler",
+			wantArgs:     []string{"gh", "copilot", "suggest", "add unit tests for auth handler"},
+			wantDir:      "/repo/feat-branch",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cmd := buildCopilotCmd(tt.worktreePath, tt.prompt)
+			require.NotNil(t, cmd)
+			assert.Equal(t, tt.wantArgs, cmd.Args)
+			assert.Equal(t, tt.wantDir, cmd.Dir)
+		})
+	}
+}
+
+// TestModel_CopilotPrompt_EscCancels verifies that pressing Esc while the
+// copilot prompt is active clears copilotPromptActive without spawning.
+func TestModel_CopilotPrompt_EscCancels(t *testing.T) {
+	model := NewModel()
+	model.copilotPromptActive = true
+	model.Worktrees = []domain.Worktree{{Path: "/tmp/wt", Branch: "main", CommitSHA: "abc"}}
+
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	updatedModel, ok := updated.(*Model)
+	require.True(t, ok)
+
+	assert.False(t, updatedModel.copilotPromptActive,
+		"Esc should deactivate the copilot prompt")
+}
+
+// TestModel_CopilotPrompt_EscClearsInputValue verifies that Esc also resets
+// the text input value so it starts fresh on the next invocation.
+func TestModel_CopilotPrompt_EscClearsInputValue(t *testing.T) {
+	model := NewModel()
+	model.copilotPromptActive = true
+	model.copilotPromptInput.SetValue("some typed text")
+
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	updatedModel, ok := updated.(*Model)
+	require.True(t, ok)
+
+	assert.Equal(t, "", updatedModel.copilotPromptInput.Value(),
+		"Esc should clear the copilot prompt input value")
+}
+
+// TestModel_CopilotPrompt_EnterWithEmptyPrompt_DoesNotSpawn verifies that
+// pressing Enter with an empty (or whitespace-only) prompt is a no-op.
+func TestModel_CopilotPrompt_EnterWithEmptyPrompt_DoesNotSpawn(t *testing.T) {
+	model := NewModel()
+	model.copilotPromptActive = true
+	// Leave input value empty (default)
+
+	updated, cmd := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updatedModel, ok := updated.(*Model)
+	require.True(t, ok)
+
+	// With an empty prompt, state should not change (prompt stays active)
+	// and no cmd should be spawned.
+	assert.True(t, updatedModel.copilotPromptActive,
+		"empty-prompt Enter should leave copilotPromptActive true")
+	assert.Nil(t, cmd, "empty-prompt Enter should not return a spawn Cmd")
+}
+
+// TestModel_AgentDoneMsg_ClearsPrompt verifies that receiving agentDoneMsg
+// clears the copilot prompt state regardless of exit code.
+func TestModel_AgentDoneMsg_ClearsPrompt(t *testing.T) {
+	tests := []struct {
+		name     string
+		exitCode int
+	}{
+		{name: "exit code 0 clears prompt", exitCode: 0},
+		{name: "non-zero exit code still clears prompt", exitCode: 1},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			model := NewModel()
+			model.copilotPromptActive = true
+
+			updated, _ := model.Update(agentDoneMsg{
+				agentName: "copilot",
+				prompt:    "test prompt",
+				exitCode:  tt.exitCode,
+			})
+			updatedModel, ok := updated.(*Model)
+			require.True(t, ok)
+
+			assert.False(t, updatedModel.copilotPromptActive,
+				"agentDoneMsg should clear copilotPromptActive")
+		})
+	}
+}
+
+// TestModel_AgentDoneMsg_LogsToDBWhenAvailable verifies that agentDoneMsg
+// triggers a DB log call when model.db is set (non-nil).
+func TestModel_AgentDoneMsg_LogsToDBWhenAvailable(t *testing.T) {
+	// We test the logging path by supplying a real in-memory DB.
+	db, err := newTestDB(t)
+	require.NoError(t, err)
+
+	model := NewModel()
+	model.copilotPromptActive = true
+	model.db = db
+
+	updated, _ := model.Update(agentDoneMsg{
+		agentName: "copilot",
+		prompt:    "fix bug",
+		exitCode:  0,
+	})
+	updatedModel, ok := updated.(*Model)
+	require.True(t, ok)
+
+	// No error should be set on the model.
+	assert.Empty(t, updatedModel.Error, "DB log should not set an error on success")
+
+	// Verify the row was actually written.
+	var count int
+	require.NoError(t, db.Conn.QueryRow(
+		"SELECT COUNT(*) FROM agent_history WHERE agent_name = 'copilot'",
+	).Scan(&count))
+	assert.Equal(t, 1, count, "one agent_history row should have been inserted")
+}
+
+// TestModel_View_ShowsCopilotPromptWhenActive verifies that View() returns a
+// string containing the prompt UI when copilotPromptActive is true.
+func TestModel_View_ShowsCopilotPromptWhenActive(t *testing.T) {
+	model := NewModel()
+	model.copilotPromptActive = true
+
+	view := model.View()
+
+	assert.Contains(t, view, "Spawn Copilot",
+		"View should show the Copilot prompt header when active")
+	assert.Contains(t, view, "Esc cancel",
+		"View should show the cancel hint when copilot prompt is active")
+}
+
