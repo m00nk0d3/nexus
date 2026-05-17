@@ -569,6 +569,9 @@ func (m *Model) View() string {
 		if wa, ok := m.activeModal.(interface{ SetWidth(int) }); ok {
 			wa.SetWidth(w)
 		}
+		if ta, ok := m.activeModal.(interface{ SetTheme(styles.Theme) }); ok {
+			ta.SetTheme(styles.NewTheme(styles.Themes[m.themeIdx]))
+		}
 		return overlay(m.activeModal.Title(), m.activeModal.View())
 	}
 

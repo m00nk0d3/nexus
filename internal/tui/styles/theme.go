@@ -147,6 +147,15 @@ func (t Theme) StatusStyle(status string) lipgloss.Style {
 	}
 }
 
+// Accent returns the theme's accent color hex string.
+func (t Theme) Accent() string { return t.accent }
+
+// Muted returns the theme's muted color hex string.
+func (t Theme) Muted() string { return t.muted }
+
+// Fg returns the theme's foreground color hex string.
+func (t Theme) Fg() string { return t.fg }
+
 // MutedBorder returns s with the border foreground dimmed to the muted color.
 // Apply this to unfocused panels to visually de-emphasize them relative to the
 // currently focused panel.

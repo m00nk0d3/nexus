@@ -4,7 +4,9 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/charmbracelet/lipgloss"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/m00nk0d3/nexus/internal/tui/styles"
 	"github.com/m00nk0d3/nexus/internal/version"
 )
 
@@ -25,16 +27,73 @@ var helpTabLabels = [helpTabCount]string{
 	"About",
 }
 
+// bindingGroup holds one section of the Keybindings tab.
+type bindingGroup struct {
+	title    string
+	bindings [][2]string // [keys, description]
+}
+
+var keybindingGroups = []bindingGroup{
+	{
+		title: "NAVIGATION",
+		bindings: [][2]string{
+			{"↑/↓  j/k", "Navigate within panel"},
+			{"←/→  h/l", "Switch between panels / tabs"},
+			{"Tab", "Cycle panel focus / tab"},
+			{"Enter", "Open shell in worktree / Select"},
+		},
+	},
+	{
+		title: "WORKTREE OPERATIONS",
+		bindings: [][2]string{
+			{"Ctrl+N", "Create new worktree"},
+			{"Ctrl+D", "Delete selected worktree"},
+			{"s", "Open shell in worktree"},
+		},
+	},
+	{
+		title: "AI AGENTS",
+		bindings: [][2]string{
+			{"a", "Spawn Claude Code"},
+			{"c", "Spawn GitHub Copilot"},
+			{"Space", "Unified agent launcher"},
+		},
+	},
+	{
+		title: "VIEWS",
+		bindings: [][2]string{
+			{"w / W", "Worktrees view"},
+			{"i / I", "Issues view"},
+			{"p / P", "PRs view"},
+			{"t", "Cycle themes"},
+		},
+	},
+	{
+		title: "GLOBAL",
+		bindings: [][2]string{
+			{"f1 / ?", "Open this help modal"},
+			{"g", "Open selected item in GitHub"},
+			{"Esc / Ctrl+C", "Quit"},
+		},
+	},
+}
+
 // HelpModal is a Bubbletea model for the in-app help overlay (f1 / ?).
 // It renders four tabs: Keybindings, Quick Tips, Troubleshooting, and About.
 type HelpModal struct {
 	activeTab    helpTab
 	scrollOffset int
+	theme        *styles.Theme
 }
 
 // NewHelpModal creates a new HelpModal starting on the Keybindings tab.
 func NewHelpModal() *HelpModal {
 	return &HelpModal{}
+}
+
+// SetTheme injects the current visual theme for styled rendering.
+func (m *HelpModal) SetTheme(t styles.Theme) {
+	m.theme = &t
 }
 
 // Init satisfies tea.Model.
@@ -107,21 +166,51 @@ func (m *HelpModal) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m *HelpModal) View() string {
 	var b strings.Builder
 
-	// Tab bar
+	// Build tab bar styles.
+	activeTabSt := lipgloss.NewStyle().Bold(true)
+	inactiveTabSt := lipgloss.NewStyle()
+	sepSt := lipgloss.NewStyle()
+	footerSt := lipgloss.NewStyle()
+	footerKeySt := lipgloss.NewStyle()
+
+	if m.theme != nil {
+		accent := lipgloss.Color(m.theme.Accent())
+		muted := lipgloss.Color(m.theme.Muted())
+		activeTabSt = activeTabSt.Foreground(accent).Underline(true)
+		inactiveTabSt = inactiveTabSt.Foreground(muted)
+		sepSt = sepSt.Foreground(muted)
+		footerSt = footerSt.Foreground(muted)
+		footerKeySt = footerKeySt.Foreground(accent)
+	}
+
+	// Tab bar.
 	for i := helpTab(0); i < helpTabCount; i++ {
+		label := " " + helpTabLabels[i] + " "
 		if i == m.activeTab {
-			b.WriteString(fmt.Sprintf("[%s]", helpTabLabels[i]))
+			b.WriteString(activeTabSt.Render(label))
 		} else {
-			b.WriteString(fmt.Sprintf("  %s  ", helpTabLabels[i]))
+			b.WriteString(inactiveTabSt.Render(label))
 		}
 		if i < helpTabCount-1 {
-			b.WriteString("  ")
+			b.WriteString(sepSt.Render(" │ "))
 		}
 	}
 	b.WriteString("\n\n")
 
-	// Tab content (with scrolling applied)
-	lines := strings.Split(m.tabContent(), "\n")
+	// Tab content (with scrolling applied).
+	var content string
+	switch m.activeTab {
+	case tabKeybindings:
+		content = m.renderKeybindings()
+	case tabTips:
+		content = m.styledContent(tipsContent)
+	case tabTroubleshooting:
+		content = m.styledContent(troubleshootingContent)
+	case tabAbout:
+		content = m.styledContent(aboutContent())
+	}
+
+	lines := strings.Split(content, "\n")
 	start := m.scrollOffset
 	if maxStart := len(lines) - 1; start > maxStart {
 		start = maxStart
@@ -131,51 +220,117 @@ func (m *HelpModal) View() string {
 	}
 	b.WriteString(strings.Join(lines[start:], "\n"))
 
-	b.WriteString("\n\nTab/h/l: switch tabs   j/k: scroll   Esc/q: close")
+	// Footer hints.
+	b.WriteString("\n\n  ")
+	b.WriteString(footerKeySt.Render("Tab/h/l"))
+	b.WriteString(footerSt.Render(" switch tabs"))
+	b.WriteString(footerSt.Render("   ·   "))
+	b.WriteString(footerKeySt.Render("j/k"))
+	b.WriteString(footerSt.Render(" scroll"))
+	b.WriteString(footerSt.Render("   ·   "))
+	b.WriteString(footerKeySt.Render("Esc/q"))
+	b.WriteString(footerSt.Render(" close"))
+
 	return b.String()
 }
 
-// tabContent returns the full unscrolled body for the active tab.
-func (m *HelpModal) tabContent() string {
-	switch m.activeTab {
-	case tabKeybindings:
-		return keybindingsContent
-	case tabTips:
-		return tipsContent
-	case tabTroubleshooting:
-		return troubleshootingContent
-	case tabAbout:
-		return aboutContent()
+// renderKeybindings renders the Keybindings tab with aligned two-column layout.
+func (m *HelpModal) renderKeybindings() string {
+	sectionSt := lipgloss.NewStyle().Bold(true)
+	keySt := lipgloss.NewStyle()
+	descSt := lipgloss.NewStyle()
+
+	if m.theme != nil {
+		sectionSt = sectionSt.Foreground(lipgloss.Color(m.theme.Accent()))
+		keySt = keySt.Foreground(lipgloss.Color(m.theme.Accent()))
+		descSt = descSt.Foreground(lipgloss.Color(m.theme.Fg()))
 	}
-	return ""
+
+	// Compute max key width for column alignment.
+	maxKey := 0
+	for _, g := range keybindingGroups {
+		for _, b := range g.bindings {
+			if len(b[0]) > maxKey {
+				maxKey = len(b[0])
+			}
+		}
+	}
+
+	var b strings.Builder
+	for i, g := range keybindingGroups {
+		if i > 0 {
+			b.WriteString("\n")
+		}
+		b.WriteString(sectionSt.Render(g.title))
+		b.WriteString("\n")
+		for _, binding := range g.bindings {
+			keyPadded := fmt.Sprintf("%-*s", maxKey, binding[0])
+			b.WriteString("  ")
+			b.WriteString(keySt.Render(keyPadded))
+			b.WriteString("  ")
+			b.WriteString(descSt.Render(binding[1]))
+			b.WriteString("\n")
+		}
+	}
+	return b.String()
 }
 
-const keybindingsContent = `NAVIGATION
-  ↑/↓  j/k      Navigate within panel
-  ←/→  h/l      Switch between panels / tabs
-  Tab             Cycle panel focus / tab
-  Enter           Open shell in worktree / Select
+// styledContent post-processes a plain-text content string, applying lipgloss
+// styles for section headers, sub-headers, and label:value pairs.
+func (m *HelpModal) styledContent(content string) string {
+	if m.theme == nil {
+		return content
+	}
 
-WORKTREE OPERATIONS
-  Ctrl+N          Create new worktree
-  Ctrl+D          Delete selected worktree
-  s               Open shell in worktree
+	sectionSt := lipgloss.NewStyle().Foreground(lipgloss.Color(m.theme.Accent())).Bold(true)
+	subheaderSt := lipgloss.NewStyle().Foreground(lipgloss.Color(m.theme.Fg())).Bold(true)
+	labelSt := lipgloss.NewStyle().Foreground(lipgloss.Color(m.theme.Accent()))
 
-AI AGENTS (from Context Panel)
-  a               Spawn Claude Code
-  c               Spawn GitHub Copilot
-  Space           Unified agent launcher
+	lines := strings.Split(content, "\n")
+	var b strings.Builder
 
-VIEWS
-  w / W           Worktrees view
-  i / I           Issues view
-  p / P           PRs view
-  t               Cycle themes
+	for i, line := range lines {
+		trimmed := strings.TrimSpace(line)
 
-GLOBAL
-  f1 / ?          Open this help modal
-  g               Open selected item in GitHub
-  Esc / Ctrl+C    Quit`
+		switch {
+		case len(trimmed) == 0:
+			b.WriteString(line)
+
+		case isAllCaps(trimmed):
+			// ALL-CAPS → section header.
+			b.WriteString(sectionSt.Render(line))
+
+		case !strings.HasPrefix(line, " ") && !strings.HasPrefix(line, "\t"):
+			// Non-indented mixed-case line → sub-header (bold title / numbered item).
+			b.WriteString(subheaderSt.Render(line))
+
+		case strings.Contains(trimmed, ":") && !strings.HasPrefix(trimmed, "•"):
+			// Indented "Label: value" line (e.g. "  Symptom:", "  Fix:", "Version:").
+			colonIdx := strings.Index(trimmed, ":")
+			leadLen := len(line) - len(strings.TrimLeft(line, " \t"))
+			indent := line[:leadLen]
+			label := trimmed[:colonIdx+1]
+			rest := trimmed[colonIdx+1:]
+			b.WriteString(indent + labelSt.Render(label) + rest)
+
+		default:
+			b.WriteString(line)
+		}
+
+		if i < len(lines)-1 {
+			b.WriteString("\n")
+		}
+	}
+
+	return b.String()
+}
+
+// isAllCaps reports whether s (trimmed) consists only of uppercase letters,
+// digits, spaces, and punctuation — with at least one uppercase letter.
+func isAllCaps(s string) bool {
+	s = strings.TrimSpace(s)
+	return len(s) > 0 && s == strings.ToUpper(s) && strings.ContainsAny(s, "ABCDEFGHIJKLMNOPQRSTUVWXYZ")
+}
 
 const tipsContent = `COMMON WORKFLOWS
 
@@ -248,3 +403,4 @@ Nexus helps you manage multiple git worktrees and
 launch AI coding agents with the correct filesystem
 context — all from a single terminal interface.`, version.Version)
 }
+
