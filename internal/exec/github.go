@@ -4,10 +4,70 @@ import (
 	"encoding/json"
 	"fmt"
 	osexec "os/exec"
+	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/m00nk0d3/nexus/internal/domain"
 )
+
+// parentRefRe matches common "this issue is a sub-issue of #N" patterns in issue bodies.
+// Examples: "Part of #61", "Tracked by #61", "Parent: #61", "Sub-issue of #61".
+var parentRefRe = regexp.MustCompile(`(?im)(?:part\s+of|tracked?\s+by|parent:?|sub.?issue\s+of)\s+#(\d+)`)
+
+// EnrichHierarchyFromBodies scans each issue's body text and sets ParentNumber /
+// SubIssueNumbers when body-based parent-reference patterns are found. It only
+// writes fields that are not already set (so GraphQL data wins over body parsing).
+func EnrichHierarchyFromBodies(issues []domain.Issue) {
+	childToParent := make(map[int]int)
+
+	for _, iss := range issues {
+		if iss.ParentNumber != nil {
+			continue // already set by GraphQL enrichment
+		}
+		m := parentRefRe.FindStringSubmatch(iss.Body)
+		if m == nil {
+			continue
+		}
+		parentNum, err := strconv.Atoi(m[1])
+		if err != nil {
+			continue
+		}
+		childToParent[iss.Number] = parentNum
+	}
+
+	// Build a number→slice-index map for quick lookups.
+	byNum := make(map[int]int, len(issues))
+	for i, iss := range issues {
+		byNum[iss.Number] = i
+	}
+
+	for i := range issues {
+		n := issues[i].Number
+		if p, ok := childToParent[n]; ok {
+			pCopy := p
+			issues[i].ParentNumber = &pCopy
+		}
+	}
+
+	// Derive SubIssueNumbers for parent issues from the reverse map.
+	// Only add children that actually exist in the slice.
+	parentChildren := make(map[int][]int)
+	for child, parent := range childToParent {
+		if _, ok := byNum[child]; ok {
+			parentChildren[parent] = append(parentChildren[parent], child)
+		}
+	}
+	for i := range issues {
+		n := issues[i].Number
+		if len(issues[i].SubIssueNumbers) > 0 {
+			continue // already set
+		}
+		if children, ok := parentChildren[n]; ok && len(children) > 0 {
+			issues[i].SubIssueNumbers = children
+		}
+	}
+}
 
 // IssueCommand wraps the gh CLI for GitHub issue operations.
 type IssueCommand struct {

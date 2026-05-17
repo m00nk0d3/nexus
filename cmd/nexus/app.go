@@ -765,6 +765,10 @@ func (m *Model) syncGitHubCmd() tea.Cmd {
 					}
 				}
 			}
+			// Fallback: parse issue bodies for parent-reference patterns
+			// (catches repos that track hierarchy via body text rather than
+			// GitHub's native sub-issues API).
+			internalexec.EnrichHierarchyFromBodies(issues)
 		}
 
 		prs, prErr := prCmd.ListOpenPRs()
