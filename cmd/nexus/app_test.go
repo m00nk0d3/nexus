@@ -1846,3 +1846,196 @@ func TestModel_Enter_InViewWorktrees_SwitchesWorktree(t *testing.T) {
 	assert.NotNil(t, cmd, "should return a switchWorktreeCmd")
 }
 
+// ---------------------------------------------------------------------------
+// Phase 3: Aider launcher tests
+// ---------------------------------------------------------------------------
+
+// TestBuildAiderCmd_PassesSelectedFiles verifies that buildAiderCmd constructs
+// an exec.Cmd with "aider" as the binary, the files as positional arguments,
+// and Dir set to the worktree path.
+func TestBuildAiderCmd_PassesSelectedFiles(t *testing.T) {
+	tests := []struct {
+		name         string
+		worktreePath string
+		files        []string
+		binaryPath   string
+		wantArgs     []string
+	}{
+		{
+			name:         "single file",
+			worktreePath: "/tmp/my-wt",
+			files:        []string{"main.go"},
+			binaryPath:   "aider",
+			wantArgs:     []string{"aider", "main.go"},
+		},
+		{
+			name:         "multiple files",
+			worktreePath: "/tmp/my-wt",
+			files:        []string{"main.go", "go.mod", "README.md"},
+			binaryPath:   "aider",
+			wantArgs:     []string{"aider", "main.go", "go.mod", "README.md"},
+		},
+		{
+			name:         "custom binary path",
+			worktreePath: "/tmp/my-wt",
+			files:        []string{"main.go"},
+			binaryPath:   "/usr/local/bin/aider",
+			wantArgs:     []string{"/usr/local/bin/aider", "main.go"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cmd := buildAiderCmd(tt.worktreePath, tt.files, tt.binaryPath)
+			require.NotNil(t, cmd)
+			assert.Equal(t, tt.wantArgs, cmd.Args)
+			assert.Equal(t, tt.worktreePath, cmd.Dir)
+		})
+	}
+}
+
+// TestSpawnAiderCmd_BinaryNotFound_ReturnsNilCmd verifies that spawnAiderCmd
+// returns nil and sets m.Error when the configured aider binary is not found.
+func TestSpawnAiderCmd_BinaryNotFound_ReturnsNilCmd(t *testing.T) {
+	model := NewModel()
+	model.Config.AIAgents.AiderBinary = "definitely-not-a-real-binary-xyz-12345"
+
+	cmd := model.spawnAiderCmd("/tmp/my-wt", []string{"main.go"})
+
+	assert.Nil(t, cmd, "spawnAiderCmd must return nil when binary is not found")
+	assert.Contains(t, model.Error, "aider not found")
+}
+
+// TestResolveAiderBinary_DefaultsToAider verifies that an empty AiderBinary
+// config field falls back to "aider" (which may or may not be on PATH).
+func TestResolveAiderBinary_DefaultsToAider(t *testing.T) {
+	cfg := domain.DefaultConfig()
+	cfg.AIAgents.AiderBinary = ""
+
+	path, err := resolveAiderBinary(cfg)
+	if err != nil {
+		assert.Contains(t, err.Error(), "aider",
+			"error for missing default binary should mention 'aider'")
+	} else {
+		assert.NotEmpty(t, path, "resolved path should be non-empty when aider is on PATH")
+	}
+}
+
+// TestResolveAiderBinary_CustomBinary_NotFound verifies that resolveAiderBinary
+// returns an error when a custom binary is not found on PATH.
+func TestResolveAiderBinary_CustomBinary_NotFound(t *testing.T) {
+	cfg := domain.DefaultConfig()
+	cfg.AIAgents.AiderBinary = "definitely-not-a-real-binary-xyz-12345"
+
+	_, err := resolveAiderBinary(cfg)
+	require.Error(t, err, "resolveAiderBinary should return error for missing binary")
+}
+
+// TestModel_F_Key_AiderDisabled_SetsError verifies that pressing 'f' when
+// AiderEnabled=false shows a user-visible error and returns nil Cmd.
+func TestModel_F_Key_AiderDisabled_SetsError(t *testing.T) {
+	model := NewModel()
+	model.Config.AIAgents.AiderEnabled = false
+	model.view = viewWorktrees
+	model.Worktrees = []domain.Worktree{
+		{Path: "/tmp/wt", Branch: "main", CommitSHA: "abc"},
+	}
+
+	updated, cmd := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("f")})
+	updatedModel, ok := updated.(*Model)
+	require.True(t, ok)
+
+	assert.Nil(t, cmd)
+	assert.Contains(t, updatedModel.Error, "aider_enabled")
+}
+
+// TestModel_F_Key_NoWorktree_SetsError verifies that pressing 'f' with
+// AiderEnabled=true but no worktree selected shows an error.
+func TestModel_F_Key_NoWorktree_SetsError(t *testing.T) {
+	model := NewModel()
+	model.Config.AIAgents.AiderEnabled = true
+	model.view = viewWorktrees
+	// no worktrees
+
+	updated, cmd := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("f")})
+	updatedModel, ok := updated.(*Model)
+	require.True(t, ok)
+
+	assert.Nil(t, cmd)
+	assert.NotEmpty(t, updatedModel.Error)
+}
+
+// TestModel_F_Key_WrongView_SetsError verifies that pressing 'f' in a non-worktrees
+// view (e.g. viewIssues) shows a helpful error.
+func TestModel_F_Key_WrongView_SetsError(t *testing.T) {
+	model := NewModel()
+	model.Config.AIAgents.AiderEnabled = true
+	model.view = viewIssues
+	model.Worktrees = []domain.Worktree{
+		{Path: "/tmp/wt", Branch: "main", CommitSHA: "abc"},
+	}
+
+	updated, cmd := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("f")})
+	updatedModel, ok := updated.(*Model)
+	require.True(t, ok)
+
+	assert.Nil(t, cmd)
+	assert.Contains(t, updatedModel.Error, "Worktrees view")
+}
+
+// TestModel_AiderFilesFetchedMsg_OpensModal verifies that receiving a successful
+// aiderFilesFetchedMsg sets activeModal to an AiderFilePicker.
+func TestModel_AiderFilesFetchedMsg_OpensModal(t *testing.T) {
+	model := NewModel()
+	require.NotNil(t, model)
+
+	files := []string{"main.go", "go.mod"}
+	updated, cmd := model.Update(aiderFilesFetchedMsg{
+		worktreePath: "/tmp/wt",
+		files:        files,
+	})
+	m, ok := updated.(*Model)
+	require.True(t, ok)
+
+	assert.Nil(t, cmd)
+	assert.NotNil(t, m.activeModal, "active modal should be set after files are fetched")
+	assert.Equal(t, "Aider — Select Files", m.activeModal.Title())
+}
+
+// TestModel_AiderFilesFetchedMsg_ErrorSetsError verifies that an error in
+// aiderFilesFetchedMsg is surfaced as m.Error and no modal is opened.
+func TestModel_AiderFilesFetchedMsg_ErrorSetsError(t *testing.T) {
+	model := NewModel()
+	require.NotNil(t, model)
+
+	updated, cmd := model.Update(aiderFilesFetchedMsg{
+		worktreePath: "/tmp/wt",
+		err:          errors.New("git failed"),
+	})
+	m, ok := updated.(*Model)
+	require.True(t, ok)
+
+	assert.Nil(t, cmd)
+	assert.Nil(t, m.activeModal)
+	assert.Contains(t, m.Error, "Failed to list files")
+}
+
+// TestModel_F_Key_AiderNotOnPath_SetsError verifies that pressing 'f' when
+// the aider binary is not resolvable sets a user-visible error on the model.
+func TestModel_F_Key_AiderNotOnPath_SetsError(t *testing.T) {
+	model := NewModel()
+	model.Config.AIAgents.AiderEnabled = true
+	model.Config.AIAgents.AiderBinary = "definitely-not-a-real-binary-xyz-12345"
+	model.view = viewWorktrees
+	model.Worktrees = []domain.Worktree{
+		{Path: "/tmp/wt", Branch: "main", CommitSHA: "abc"},
+	}
+
+	updated, cmd := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("f")})
+	updatedModel, ok := updated.(*Model)
+	require.True(t, ok)
+
+	assert.Nil(t, cmd)
+	assert.Contains(t, updatedModel.Error, "aider not found",
+		"error should mention that the aider binary is missing")
+}

@@ -32,6 +32,7 @@ type AIAgentsConfig struct {
 	ClaudeEnabled  bool   `toml:"claude_enabled"`
 	AiderEnabled   bool   `toml:"aider_enabled"`
 	ClaudeBinary   string `toml:"claude_binary"`
+	AiderBinary    string `toml:"aider_binary"`
 }
 
 type WorktreesConfig struct {

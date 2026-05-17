@@ -27,3 +27,8 @@ type WorktreeDeleteConfirmedMsg struct {
 
 // ModalCancelledMsg is sent when the user cancels a modal (Esc or 'n').
 type ModalCancelledMsg struct{}
+
+// AiderLaunchMsg is sent when the user confirms Aider file selection.
+type AiderLaunchMsg struct {
+	Files []string
+}

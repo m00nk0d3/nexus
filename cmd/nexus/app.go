@@ -59,6 +59,13 @@ type agentDoneMsg struct {
 	startedAt time.Time
 }
 
+// aiderFilesFetchedMsg carries the result of listing modified files for the Aider file picker.
+type aiderFilesFetchedMsg struct {
+	worktreePath string
+	files        []string
+	err          error
+}
+
 // activeView represents the currently active main panel view.
 type activeView int
 
@@ -159,6 +166,12 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case modal.WorktreeDeleteConfirmedMsg:
 			m.activeModal = nil
 			return m, m.removeWorktreeCmd(msg.Path)
+		case modal.AiderLaunchMsg:
+			m.activeModal = nil
+			if selected, ok := m.selectedWorktree(); ok {
+				return m, m.spawnAiderCmd(selected.Path, msg.Files)
+			}
+			return m, nil
 		case modal.ModalCancelledMsg:
 			m.activeModal = nil
 			return m, nil
@@ -348,6 +361,25 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.claudePromptInput = ti
 				m.claudePromptActive = true
 				return m, focusCmd
+			case "f", "F":
+				if m.view != viewWorktrees {
+					m.Error = "Aider (f) is only available in the Worktrees view — press w to switch"
+					return m, nil
+				}
+				if !m.Config.AIAgents.AiderEnabled {
+					m.Error = "Aider is disabled — set aider_enabled = true in ~/.nexus/config.toml"
+					return m, nil
+				}
+				selected, ok := m.selectedWorktree()
+				if !ok {
+					m.Error = "No worktree selected — select one first"
+					return m, nil
+				}
+				if _, err := resolveAiderBinary(m.Config); err != nil {
+					m.Error = "aider not found on $PATH — install Aider to use this feature"
+					return m, nil
+				}
+				return m, m.fetchAiderFilesCmd(selected.Path)
 			}
 		}
 
@@ -355,6 +387,14 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err == nil {
 			m.activeModal = modal.NewCreateModal(msg.issues, m.RepoPath)
 		}
+
+	case aiderFilesFetchedMsg:
+		if msg.err != nil {
+			m.Error = fmt.Sprintf("Failed to list files: %v", msg.err)
+			return m, nil
+		}
+		m.activeModal = modal.NewAiderFilePicker(msg.files)
+		return m, nil
 
 	case worktreeOpDoneMsg:
 		// Refresh the worktree list after an add/remove operation.
@@ -605,6 +645,17 @@ func resolveClaudeBinary(cfg *domain.Config) (string, error) {
 	return exec.LookPath(bin)
 }
 
+// resolveAiderBinary returns the resolved path for the Aider binary.
+// It reads cfg.AIAgents.AiderBinary, defaulting to "aider", then
+// uses exec.LookPath to verify the binary is on the PATH.
+func resolveAiderBinary(cfg *domain.Config) (string, error) {
+	bin := cfg.AIAgents.AiderBinary
+	if bin == "" {
+		bin = "aider"
+	}
+	return exec.LookPath(bin)
+}
+
 // buildClaudeCmd constructs the exec.Cmd for running the Claude CLI with the
 // given prompt in the specified worktree directory.
 // It is extracted as a top-level function to keep it unit-testable.
@@ -633,6 +684,48 @@ func (m *Model) spawnClaudeCmd(worktreePath, prompt string) tea.Cmd {
 		return agentDoneMsg{
 			agentName: "claude",
 			prompt:    prompt,
+			exitCode:  exitCode,
+			startedAt: startedAt,
+		}
+	})
+}
+
+// fetchAiderFilesCmd returns a Cmd that lists modified files in the worktree
+// using git ls-files, dispatching aiderFilesFetchedMsg with the result.
+func (m *Model) fetchAiderFilesCmd(worktreePath string) tea.Cmd {
+	return func() tea.Msg {
+		cmd := internalexec.NewGitCommand(worktreePath)
+		files, err := cmd.ListModifiedFiles(worktreePath)
+		return aiderFilesFetchedMsg{worktreePath: worktreePath, files: files, err: err}
+	}
+}
+
+// buildAiderCmd constructs the exec.Cmd for running aider with the given files
+// in the specified worktree directory. Extracted as a top-level function for testability.
+func buildAiderCmd(worktreePath string, files []string, binaryPath string) *exec.Cmd {
+	cmd := exec.Command(binaryPath, files...)
+	cmd.Dir = worktreePath
+	return cmd
+}
+
+// spawnAiderCmd returns a Cmd that runs aider with the selected files in the
+// worktree directory and dispatches agentDoneMsg when the process exits.
+func (m *Model) spawnAiderCmd(worktreePath string, files []string) tea.Cmd {
+	binaryPath, err := resolveAiderBinary(m.Config)
+	if err != nil {
+		m.Error = fmt.Sprintf("aider not found: %v", err)
+		return nil
+	}
+	startedAt := time.Now()
+	cmd := buildAiderCmd(worktreePath, files, binaryPath)
+	return tea.ExecProcess(cmd, func(err error) tea.Msg {
+		exitCode := 0
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
+			exitCode = exitErr.ExitCode()
+		}
+		return agentDoneMsg{
+			agentName: "aider",
 			exitCode:  exitCode,
 			startedAt: startedAt,
 		}
