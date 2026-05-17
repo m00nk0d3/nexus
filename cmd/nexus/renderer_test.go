@@ -141,7 +141,7 @@ func TestRenderFull_ContainsFooterKeyHints(t *testing.T) {
 	}{
 		{
 			name:   "footer contains navigation and action hints",
-			wantIn: []string{"[Enter] Select", "[t] Theme", "[esc] Quit"},
+			wantIn: []string{"[Enter] Select", "[t] Settings", "[esc] Quit"},
 		},
 		{
 			name:   "action bar contains worktree commands",

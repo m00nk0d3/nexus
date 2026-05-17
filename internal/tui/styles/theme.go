@@ -8,7 +8,7 @@ import (
 )
 
 // Themes is the ordered list of available theme names used for cycling.
-var Themes = []string{"digital-noir", "matrix", "light"}
+var Themes = []string{"digital-noir", "matrix", "light", "everforest", "tokyonight", "catppuccin", "kanagawa", "rose-pine", "onedark"}
 
 // Theme holds the color palette and component styles for a named visual theme.
 type Theme struct {
@@ -49,6 +49,78 @@ func NewTheme(name string) Theme {
 			success: "#008000",
 			warning: "#CC6600",
 			danger:  "#CC0000",
+		}
+	case "everforest":
+		return Theme{
+			Name:    "everforest",
+			accent:  "#a7c080",
+			bg:      "#2b3339",
+			surface: "#323c41",
+			fg:      "#d3c6aa",
+			muted:   "#7a8478",
+			success: "#a7c080",
+			warning: "#e69875",
+			danger:  "#e67e80",
+		}
+	case "tokyonight":
+		return Theme{
+			Name:    "tokyonight",
+			accent:  "#7aa2f7",
+			bg:      "#1a1b26",
+			surface: "#16161e",
+			fg:      "#c0caf5",
+			muted:   "#565f89",
+			success: "#9ece6a",
+			warning: "#e0af68",
+			danger:  "#f7768e",
+		}
+	case "catppuccin":
+		return Theme{
+			Name:    "catppuccin",
+			accent:  "#cba6f7",
+			bg:      "#1e1e2e",
+			surface: "#181825",
+			fg:      "#cdd6f4",
+			muted:   "#6c7086",
+			success: "#a6e3a1",
+			warning: "#fab387",
+			danger:  "#f38ba8",
+		}
+	case "kanagawa":
+		return Theme{
+			Name:    "kanagawa",
+			accent:  "#7e9cd8",
+			bg:      "#1f1f28",
+			surface: "#16161d",
+			fg:      "#dcd7ba",
+			muted:   "#727169",
+			success: "#98bb6c",
+			warning: "#e6c384",
+			danger:  "#c34043",
+		}
+	case "rose-pine":
+		return Theme{
+			Name:    "rose-pine",
+			accent:  "#c4a7e7",
+			bg:      "#191724",
+			surface: "#1f1d2e",
+			fg:      "#e0def4",
+			muted:   "#6e6a86",
+			success: "#9ccfd8",
+			warning: "#f6c177",
+			danger:  "#eb6f92",
+		}
+	case "onedark":
+		return Theme{
+			Name:    "onedark",
+			accent:  "#61afef",
+			bg:      "#282c34",
+			surface: "#21252b",
+			fg:      "#abb2bf",
+			muted:   "#5c6370",
+			success: "#98c379",
+			warning: "#e5c07b",
+			danger:  "#e06c75",
 		}
 	default: // digital-noir
 		return Theme{
@@ -155,6 +227,12 @@ func (t Theme) Muted() string { return t.muted }
 
 // Fg returns the theme's foreground color hex string.
 func (t Theme) Fg() string { return t.fg }
+
+// Bg returns the theme's background color hex string.
+func (t Theme) Bg() string { return t.bg }
+
+// Success returns the theme's success color hex string.
+func (t Theme) Success() string { return t.success }
 
 // MutedBorder returns s with the border foreground dimmed to the muted color.
 // Apply this to unfocused panels to visually de-emphasize them relative to the

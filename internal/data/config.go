@@ -38,7 +38,9 @@ func LoadConfig(path string) (*domain.Config, error) {
 	return cfg, nil
 }
 
-// SaveConfig marshals cfg to TOML and writes it to path, creating parent directories as needed.
+// SaveConfig marshals cfg to TOML and writes it atomically to path,
+// creating parent directories as needed. It writes to a temp file first,
+// then renames to the target path to avoid partial writes.
 func SaveConfig(cfg *domain.Config, path string) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return fmt.Errorf("create config dir: %w", err)
@@ -49,8 +51,13 @@ func SaveConfig(cfg *domain.Config, path string) error {
 		return fmt.Errorf("marshal config: %w", err)
 	}
 
-	if err := os.WriteFile(path, b, 0o644); err != nil {
-		return fmt.Errorf("write config: %w", err)
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, b, 0o644); err != nil {
+		return fmt.Errorf("write config tmp: %w", err)
+	}
+
+	if err := os.Rename(tmp, path); err != nil {
+		return fmt.Errorf("rename config: %w", err)
 	}
 
 	return nil

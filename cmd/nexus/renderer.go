@@ -15,8 +15,8 @@ import (
 
 const (
 	appVersion             = "1.0"
-	footerHintsWorktrees   = "[Tab] Panel | [j/k] Navigate | [Enter] Select | [Space] Agents | [t] Theme | [g] GH | [esc] Quit"
-	footerHintsPRs         = "[Tab] Panel | [j/k] Navigate | [Enter] Checkout | [t] Theme | [g] GH | [esc] Quit"
+	footerHintsWorktrees   = "[Tab] Panel | [j/k] Navigate | [Enter] Select | [Space] Agents | [t] Settings | [g] GH | [esc] Quit"
+	footerHintsPRs         = "[Tab] Panel | [j/k] Navigate | [Enter] Checkout | [t] Settings | [g] GH | [esc] Quit"
 	footerHintsDefault     = footerHintsWorktrees
 	actionBarHints         = "[c-n] New  [c-d] Delete  [c-l] Lock | [f1] Help"
 	defaultTermWidth = 120
@@ -47,7 +47,7 @@ var navItems = []navItem{
 	{"W", "WORKTREES"},
 	{"I", "ISSUES"},
 	{"P", "PRs"},
-	{"T", "THEMES"},
+	{"T", "SETTINGS"},
 }
 
 // renderFull builds the complete 3-pane TUI layout.

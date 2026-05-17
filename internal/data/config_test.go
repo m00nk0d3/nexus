@@ -182,6 +182,11 @@ func TestSaveConfig(t *testing.T) {
 			_, statErr := os.Stat(path)
 			require.NoError(t, statErr, "expected file to exist at %s", path)
 
+			// Atomic write: the .tmp file must NOT remain after a successful save.
+			tmpPath := path + ".tmp"
+			_, tmpStatErr := os.Stat(tmpPath)
+			assert.True(t, os.IsNotExist(tmpStatErr), "expected .tmp file to be removed after atomic rename, but it exists at %s", tmpPath)
+
 			// Round-trip: reload and verify a representative field.
 			loaded, err := LoadConfig(path)
 			require.NoError(t, err)
