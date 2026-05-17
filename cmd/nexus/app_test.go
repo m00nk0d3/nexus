@@ -1453,3 +1453,267 @@ func TestModel_View_ShowsCopilotPromptWhenActive(t *testing.T) {
 		"View should show the cancel hint when copilot prompt is active")
 }
 
+// ---------------------------------------------------------------------------
+// Phase 3: Claude Code launcher tests
+// ---------------------------------------------------------------------------
+
+// TestSpawnClaudeCmd_UsesCustomBinaryPath verifies that buildClaudeCmd
+// places the custom binary path as the executable and the prompt as arg.
+func TestSpawnClaudeCmd_UsesCustomBinaryPath(t *testing.T) {
+	tests := []struct {
+		name         string
+		worktreePath string
+		prompt       string
+		binaryPath   string
+		wantArgs     []string
+		wantDir      string
+	}{
+		{
+			name:         "uses default claude binary",
+			worktreePath: "/tmp/my-worktree",
+			prompt:       "refactor the handler",
+			binaryPath:   "claude",
+			wantArgs:     []string{"claude", "refactor the handler"},
+			wantDir:      "/tmp/my-worktree",
+		},
+		{
+			name:         "uses custom binary path",
+			worktreePath: "/repo/feat-branch",
+			prompt:       "write unit tests",
+			binaryPath:   "/usr/local/bin/claude",
+			wantArgs:     []string{"/usr/local/bin/claude", "write unit tests"},
+			wantDir:      "/repo/feat-branch",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cmd := buildClaudeCmd(tt.worktreePath, tt.prompt, tt.binaryPath)
+			require.NotNil(t, cmd)
+			assert.Equal(t, tt.wantArgs, cmd.Args)
+			assert.Equal(t, tt.wantDir, cmd.Dir)
+		})
+	}
+}
+
+// TestSpawnClaudeCmd_BinaryNotFound_ReturnsError verifies that resolveClaudeBinary
+// returns an error when the binary is not found on PATH.
+func TestSpawnClaudeCmd_BinaryNotFound_ReturnsError(t *testing.T) {
+	cfg := domain.DefaultConfig()
+	cfg.AIAgents.ClaudeBinary = "definitely-not-a-real-binary-xyz-12345"
+
+	_, err := resolveClaudeBinary(cfg)
+	require.Error(t, err, "resolveClaudeBinary should return error for missing binary")
+}
+
+// TestResolveClaudeBinary_DefaultsToClaudeBinary verifies that an empty ClaudeBinary
+// config field falls back to "claude" (which may or may not be on PATH).
+func TestResolveClaudeBinary_DefaultsToClaudeBinary(t *testing.T) {
+	cfg := domain.DefaultConfig()
+	cfg.AIAgents.ClaudeBinary = ""
+
+	// We cannot assume "claude" is installed, so we only check that the error
+	// message (if any) mentions "claude" rather than an empty string.
+	path, err := resolveClaudeBinary(cfg)
+	if err != nil {
+		assert.Contains(t, err.Error(), "claude",
+			"error for missing default binary should mention 'claude'")
+	} else {
+		assert.NotEmpty(t, path, "resolved path should be non-empty when claude is on PATH")
+	}
+}
+
+// TestModel_A_Key_TriggersClaude verifies [a] key activates the Claude prompt
+// when ClaudeEnabled=true and a worktree is selected (if binary exists),
+// and is a no-op when disabled or no worktree exists.
+func TestModel_A_Key_TriggersClaude(t *testing.T) {
+	tests := []struct {
+		name             string
+		claudeEnabled    bool
+		hasWorktree      bool
+		wantPromptActive bool
+	}{
+		{
+			name:             "a key with disabled config does nothing",
+			claudeEnabled:    false,
+			hasWorktree:      true,
+			wantPromptActive: false,
+		},
+		{
+			name:             "a key with no worktree does nothing",
+			claudeEnabled:    true,
+			hasWorktree:      false,
+			wantPromptActive: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			model := NewModel()
+			model.Config.AIAgents.ClaudeEnabled = tt.claudeEnabled
+			model.view = viewWorktrees
+			if tt.hasWorktree {
+				model.Worktrees = []domain.Worktree{
+					{Path: "/tmp/wt", Branch: "main", CommitSHA: "abc"},
+				}
+			}
+
+			updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("a")})
+			updatedModel, ok := updated.(*Model)
+			require.True(t, ok)
+
+			assert.False(t, updatedModel.claudePromptActive,
+				"claudePromptActive should be false")
+		})
+	}
+
+	// Happy path: only run if claude is actually on PATH.
+	t.Run("a key with enabled config and selected worktree activates prompt", func(t *testing.T) {
+		if _, err := exec.LookPath("claude"); err != nil {
+			t.Skip("claude not on PATH; skipping test that requires claude binary")
+		}
+
+		model := NewModel()
+		model.Config.AIAgents.ClaudeEnabled = true
+		model.view = viewWorktrees
+		model.Worktrees = []domain.Worktree{
+			{Path: "/tmp/wt", Branch: "main", CommitSHA: "abc"},
+		}
+
+		updated, cmd := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("a")})
+		updatedModel, ok := updated.(*Model)
+		require.True(t, ok)
+
+		assert.True(t, updatedModel.claudePromptActive,
+			"claudePromptActive should be true when claude is on PATH")
+		assert.NotNil(t, cmd, "textinput.Focus() should return a non-nil cmd")
+	})
+
+	t.Run("a key in issues view does nothing even when enabled", func(t *testing.T) {
+		model := NewModel()
+		model.Config.AIAgents.ClaudeEnabled = true
+		model.view = viewIssues
+		model.Worktrees = []domain.Worktree{
+			{Path: "/tmp/wt", Branch: "main", CommitSHA: "abc"},
+		}
+
+		updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("a")})
+		updatedModel, ok := updated.(*Model)
+		require.True(t, ok)
+
+		assert.False(t, updatedModel.claudePromptActive,
+			"claudePromptActive should stay false when not in worktrees view")
+	})
+}
+
+// TestModel_ClaudePrompt_EscCancels verifies that pressing Esc while the
+// Claude prompt is active clears claudePromptActive without spawning.
+func TestModel_ClaudePrompt_EscCancels(t *testing.T) {
+	model := NewModel()
+	model.claudePromptActive = true
+	model.Worktrees = []domain.Worktree{{Path: "/tmp/wt", Branch: "main", CommitSHA: "abc"}}
+
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	updatedModel, ok := updated.(*Model)
+	require.True(t, ok)
+
+	assert.False(t, updatedModel.claudePromptActive,
+		"Esc should deactivate the claude prompt")
+}
+
+// TestModel_ClaudePrompt_EscClearsInputValue verifies that Esc also resets
+// the Claude text input value so it starts fresh on the next invocation.
+func TestModel_ClaudePrompt_EscClearsInputValue(t *testing.T) {
+	model := NewModel()
+	model.claudePromptActive = true
+	model.claudePromptInput.SetValue("some typed text")
+
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	updatedModel, ok := updated.(*Model)
+	require.True(t, ok)
+
+	assert.Equal(t, "", updatedModel.claudePromptInput.Value(),
+		"Esc should clear the claude prompt input value")
+}
+
+// TestModel_ClaudePrompt_EnterWithEmptyPrompt_DoesNotSpawn verifies that
+// pressing Enter with an empty (or whitespace-only) prompt is a no-op.
+func TestModel_ClaudePrompt_EnterWithEmptyPrompt_DoesNotSpawn(t *testing.T) {
+	model := NewModel()
+	model.claudePromptActive = true
+
+	updated, cmd := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updatedModel, ok := updated.(*Model)
+	require.True(t, ok)
+
+	assert.True(t, updatedModel.claudePromptActive,
+		"empty-prompt Enter should leave claudePromptActive true")
+	assert.Nil(t, cmd, "empty-prompt Enter should not return a spawn Cmd")
+}
+
+// TestModel_AgentDoneMsg_ClearsClaudePrompt verifies that receiving agentDoneMsg
+// clears the claude prompt state regardless of exit code.
+func TestModel_AgentDoneMsg_ClearsClaudePrompt(t *testing.T) {
+	tests := []struct {
+		name     string
+		exitCode int
+	}{
+		{name: "exit code 0 clears claude prompt", exitCode: 0},
+		{name: "non-zero exit code still clears claude prompt", exitCode: 1},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			model := NewModel()
+			model.claudePromptActive = true
+
+			updated, _ := model.Update(agentDoneMsg{
+				agentName: "claude",
+				prompt:    "test prompt",
+				exitCode:  tt.exitCode,
+			})
+			updatedModel, ok := updated.(*Model)
+			require.True(t, ok)
+
+			assert.False(t, updatedModel.claudePromptActive,
+				"agentDoneMsg should clear claudePromptActive")
+		})
+	}
+}
+
+// TestModel_View_ShowsClaudePromptWhenActive verifies that View() returns a
+// string containing the Claude prompt UI when claudePromptActive is true.
+func TestModel_View_ShowsClaudePromptWhenActive(t *testing.T) {
+	model := NewModel()
+	model.claudePromptActive = true
+
+	view := model.View()
+
+	assert.Contains(t, view, "Spawn Claude Code",
+		"View should show the Claude prompt header when active")
+	assert.Contains(t, view, "Esc cancel",
+		"View should show the cancel hint when claude prompt is active")
+}
+
+// TestModel_A_Key_BinaryNotFound_SetsError verifies that pressing [a] when
+// the claude binary is not resolvable sets a user-visible error on the model.
+func TestModel_A_Key_BinaryNotFound_SetsError(t *testing.T) {
+	model := NewModel()
+	model.Config.AIAgents.ClaudeEnabled = true
+	model.Config.AIAgents.ClaudeBinary = "definitely-not-a-real-binary-xyz-12345"
+	model.view = viewWorktrees
+	model.Worktrees = []domain.Worktree{
+		{Path: "/tmp/wt", Branch: "main", CommitSHA: "abc"},
+	}
+
+	updated, cmd := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("a")})
+	updatedModel, ok := updated.(*Model)
+	require.True(t, ok)
+
+	assert.False(t, updatedModel.claudePromptActive,
+		"prompt should not open when binary is not found")
+	assert.Nil(t, cmd, "no cmd should be returned when binary is missing")
+	assert.Contains(t, updatedModel.Error, "claude binary not found",
+		"error should mention the missing binary")
+}
+
