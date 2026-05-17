@@ -161,9 +161,6 @@ type Model struct {
 	// Debounce state
 	pendingSync *githubSyncedMsg // pending sync data waiting for debounce timer
 
-	// Lazy load state
-	lazyLoadTimer *time.Timer // timer for debounced worktree context load
-
 	// DB is optional; when non-nil, agent runs are logged to agent_history.
 	db *data.DB
 
@@ -720,8 +717,8 @@ func (m *Model) syncGitHubCmd() tea.Cmd {
 	return func() tea.Msg {
 		// If db is available, check cache staleness before hitting the CLI.
 		if db != nil {
-			prStale, _ := data.IsCacheStale(db, "github_prs", ttl)
-			issStale, _ := data.IsCacheStale(db, "github_issues", ttl)
+			prStale, _ := data.IsCacheStale(db, data.CacheTablePRs, ttl)
+			issStale, _ := data.IsCacheStale(db, data.CacheTableIssues, ttl)
 			if !prStale && !issStale {
 				// Cache is fresh — return cached rows without calling gh.
 				repo := data.NewGitHubRepository(db)

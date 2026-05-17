@@ -61,7 +61,7 @@ func TestCacheTTL_SkipsCliIfFresh(t *testing.T) {
 
 			tt.setup(db)
 
-			stale, err := IsCacheStale(db, "github_prs", tt.ttl)
+			stale, err := IsCacheStale(db, CacheTablePRs, tt.ttl)
 			require.NoError(t, err)
 			assert.Equal(t, tt.wantStale, stale)
 		})

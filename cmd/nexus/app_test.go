@@ -2360,3 +2360,18 @@ func TestDebounce_CollapsesRapidUpdates(t *testing.T) {
 	assert.Equal(t, 2, m4.prs[0].Number, "latest PR applied")
 }
 
+func TestPagination_PrevPageClampsAtZero(t *testing.T) {
+	m := NewModel()
+	for i := 1; i <= 60; i++ {
+		m.issues = append(m.issues, domain.Issue{Number: i, Title: fmt.Sprintf("Issue %d", i)})
+	}
+	m.view = viewIssues
+	m.currentPage = 0
+
+	// Pressing PageUp on page 0 should stay at page 0 (no underflow)
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyPgUp})
+	m2 := updated.(*Model)
+	assert.Equal(t, 0, m2.currentPage, "PageUp on first page stays at page 0")
+	assert.Equal(t, 0, m2.selectedIssueIdx, "selectedIssueIdx unchanged when already at first page")
+}
+

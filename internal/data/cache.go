@@ -6,20 +6,30 @@ import (
 	"time"
 )
 
+// CacheTable is the set of known SQLite tables that support TTL staleness checks.
+// Using a typed constant prevents arbitrary strings from being passed to IsCacheStale,
+// which builds its query via fmt.Sprintf.
+type CacheTable string
+
+const (
+	CacheTablePRs    CacheTable = "github_prs"
+	CacheTableIssues CacheTable = "github_issues"
+)
+
 // IsCacheStale reports whether the most recent synced_at in the given table
 // is older than ttl, or the table is empty (stale = needs refresh).
-func IsCacheStale(db *DB, tableName string, ttl time.Duration) (bool, error) {
+func IsCacheStale(db *DB, table CacheTable, ttl time.Duration) (bool, error) {
 	var raw sql.NullString
-	query := fmt.Sprintf("SELECT MAX(synced_at) FROM %s", tableName)
+	query := fmt.Sprintf("SELECT MAX(synced_at) FROM %s", table)
 	if err := db.Conn.QueryRow(query).Scan(&raw); err != nil {
-		return true, fmt.Errorf("is cache stale %s: %w", tableName, err)
+		return true, fmt.Errorf("is cache stale %s: %w", table, err)
 	}
 	if !raw.Valid || raw.String == "" {
 		return true, nil // table is empty
 	}
 	t, err := time.Parse("2006-01-02 15:04:05", raw.String)
 	if err != nil {
-		return true, fmt.Errorf("is cache stale %s: parse time %q: %w", tableName, raw.String, err)
+		return true, fmt.Errorf("is cache stale %s: parse time %q: %w", table, raw.String, err)
 	}
 	return time.Since(t) > ttl, nil
 }
