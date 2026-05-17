@@ -10,6 +10,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/m00nk0d3/nexus/internal/data"
 	"github.com/m00nk0d3/nexus/internal/logging"
+	"github.com/m00nk0d3/nexus/internal/version"
 )
 
 func run() error {
@@ -61,6 +62,10 @@ func run() error {
 }
 
 func main() {
+	if len(os.Args) > 1 && (os.Args[1] == "--version" || os.Args[1] == "-v") {
+		fmt.Printf("nexus version %s\n", version.Version)
+		return
+	}
 	if err := run(); err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(1)
