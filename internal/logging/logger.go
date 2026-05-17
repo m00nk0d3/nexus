@@ -29,8 +29,20 @@ func InitLogger(path string) (*slog.Logger, io.Closer, error) {
 	return slog.New(handler), f, nil
 }
 
+// DefaultLogPath returns the canonical path for the application log file.
+// It falls back to a relative path when the user home directory cannot be determined.
+func DefaultLogPath() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return filepath.Join(".", ".nexus", "logs", "nexus.log")
+	}
+	return filepath.Join(home, ".nexus", "logs", "nexus.log")
+}
+
 // RotateIfNeeded renames path to path+".1" when the file size exceeds maxLogSize.
 // It is a no-op when the file does not exist.
+// Only a single backup (.log.1) is kept; the previous .log.1 is overwritten on
+// each rotation.
 func RotateIfNeeded(path string) error {
 	info, err := os.Stat(path)
 	if os.IsNotExist(err) {

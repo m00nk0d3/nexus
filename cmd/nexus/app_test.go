@@ -505,11 +505,11 @@ func TestModelView_ShowsErrorMessage(t *testing.T) {
 	model.statusErr = "Failed to switch worktree: boom"
 
 	view := model.View()
-	// Error is rendered as a bottom-right modal box.
+	// Error content is present in the overlay.
 	assert.Contains(t, view, "Failed to switch worktree: boom")
 	assert.Contains(t, view, "Press any key to dismiss")
-	// Base view is replaced by the modal — the TUI chrome should not be visible.
-	assert.NotContains(t, view, "GIT WORKTREE ORCHESTRATOR")
+	// Base view remains visible underneath the overlay modal.
+	assert.Contains(t, view, "GIT WORKTREE ORCHESTRATOR")
 }
 
 func TestModel_T_KeyCyclesTheme(t *testing.T) {

@@ -494,7 +494,12 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		if msg.exitCode > 1 {
-			m.statusErr = fmt.Sprintf("⚠ Agent exited with code %d", msg.exitCode)
+			exitMsg := fmt.Sprintf("⚠ Agent exited with code %d", msg.exitCode)
+			if m.statusErr != "" {
+				m.statusErr = m.statusErr + "; " + exitMsg
+			} else {
+				m.statusErr = exitMsg
+			}
 		}
 		if m.statusErr != "" {
 			return m, tea.Batch(m.refreshWorktreesCmd(), clearErrorCmd())
@@ -578,7 +583,7 @@ func (m *Model) View() string {
 	}
 
 	if m.statusErr != "" {
-		return renderErrorModal(m.statusErr, w, h)
+		return renderErrorModal(m.statusErr, w, h, baseView)
 	}
 
 	return baseView

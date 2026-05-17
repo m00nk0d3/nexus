@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/mattn/go-runewidth"
 	"github.com/m00nk0d3/nexus/internal/domain"
 	"github.com/m00nk0d3/nexus/internal/tui/styles"
@@ -680,8 +681,9 @@ func formatLabels(labels []string) string {
 }
 
 // renderErrorModal renders a floating error notification box anchored to the
-// bottom-right corner of the terminal viewport.
-func renderErrorModal(msg string, termWidth, termHeight int) string {
+// bottom-right corner of the terminal viewport, overlaid on top of the base view
+// so the user retains context while the error is displayed.
+func renderErrorModal(msg string, termWidth, termHeight int, baseView string) string {
 	if termWidth <= 0 {
 		termWidth = defaultTermWidth
 	}
@@ -689,12 +691,62 @@ func renderErrorModal(msg string, termWidth, termHeight int) string {
 		termHeight = 24
 	}
 
-	content := lipgloss.NewStyle().
+	box := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(lipgloss.Color("#FF0000")).
 		Padding(0, 1).
 		MaxWidth(60).
 		Render("✗ " + msg + "\n\nPress any key to dismiss  •  Auto-dismisses in 5s")
 
-	return lipgloss.Place(termWidth, termHeight, lipgloss.Right, lipgloss.Bottom, content)
+	return overlayBottomRight(baseView, box, termWidth)
+}
+
+// overlayBottomRight places the overlay string at the bottom-right corner of the
+// base string. ANSI escape codes in both strings are handled correctly via
+// charmbracelet/x/ansi. base is assumed to be a multi-line string filling the
+// terminal; lines shorter than required are padded with spaces.
+func overlayBottomRight(base, overlay string, termWidth int) string {
+	baseLines := strings.Split(base, "\n")
+	overlayLines := strings.Split(overlay, "\n")
+
+	// Visual width of the overlay block.
+	ow := 0
+	for _, l := range overlayLines {
+		if w := lipgloss.Width(l); w > ow {
+			ow = w
+		}
+	}
+
+	// First base line that the overlay occupies.
+	startLine := len(baseLines) - len(overlayLines)
+	if startLine < 0 {
+		startLine = 0
+	}
+
+	// Horizontal start column for the overlay (right-aligned).
+	startCol := termWidth - ow
+	if startCol < 0 {
+		startCol = 0
+	}
+
+	result := make([]string, len(baseLines))
+	copy(result, baseLines)
+
+	for i, ol := range overlayLines {
+		idx := startLine + i
+		if idx >= len(result) {
+			break
+		}
+		bl := result[idx]
+		bw := lipgloss.Width(bl)
+		switch {
+		case bw < startCol:
+			bl += strings.Repeat(" ", startCol-bw)
+		case bw > startCol:
+			bl = ansi.Truncate(bl, startCol, "")
+		}
+		result[idx] = bl + ol
+	}
+
+	return strings.Join(result, "\n")
 }

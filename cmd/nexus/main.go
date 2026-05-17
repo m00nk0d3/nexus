@@ -12,25 +12,17 @@ import (
 	"github.com/m00nk0d3/nexus/internal/logging"
 )
 
-// defaultLogPath returns the default path for the application log file.
-// It falls back to a relative path if the user home directory cannot be determined.
-func defaultLogPath() string {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return filepath.Join(".", ".nexus", "logs", "nexus.log")
-	}
-	return filepath.Join(home, ".nexus", "logs", "nexus.log")
-}
-
 func run() error {
 	// Initialise structured logger; non-fatal if it fails (falls back to discard).
-	logger, logCloser, err := logging.InitLogger(defaultLogPath())
+	// Sets it as the slog default so any log.slog.Info/Warn/Error calls in the
+	// codebase are automatically routed to the log file.
+	logger, logCloser, err := logging.InitLogger(logging.DefaultLogPath())
 	if err != nil {
 		logger = slog.New(slog.NewJSONHandler(io.Discard, nil))
 	} else {
 		defer logCloser.Close()
 	}
-	_ = logger // will be wired into model/commands in future phases
+	slog.SetDefault(logger)
 
 	cwd, err := os.Getwd()
 	if err != nil {
