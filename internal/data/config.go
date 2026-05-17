@@ -30,12 +30,12 @@ func LoadConfig(path string) (*domain.Config, error) {
 		return nil, fmt.Errorf("read config: %w", err)
 	}
 
-	var cfg domain.Config
-	if err := toml.Unmarshal(raw, &cfg); err != nil {
+	cfg := domain.DefaultConfig()
+	if err := toml.Unmarshal(raw, cfg); err != nil {
 		return nil, fmt.Errorf("parse config: %w", err)
 	}
 
-	return &cfg, nil
+	return cfg, nil
 }
 
 // SaveConfig marshals cfg to TOML and writes it to path, creating parent directories as needed.

@@ -79,6 +79,24 @@ func TestLoadConfig(t *testing.T) {
 			},
 		},
 		{
+			name: "partial TOML without ai_agents section inherits defaults",
+			setup: func(t *testing.T) string {
+				t.Helper()
+				dir := t.TempDir()
+				path := filepath.Join(dir, "config.toml")
+				// No [ai_agents] section — CopilotEnabled must still be true (default).
+				partial := "[appearance]\ntheme = \"matrix\"\n"
+				require.NoError(t, os.WriteFile(path, []byte(partial), 0o644))
+				return path
+			},
+			wantErr: false,
+			wantCheck: func(t *testing.T, cfg *domain.Config) {
+				t.Helper()
+				assert.Equal(t, "matrix", cfg.Appearance.Theme)
+				assert.Equal(t, true, cfg.AIAgents.CopilotEnabled, "CopilotEnabled must default to true when not specified in config")
+			},
+		},
+		{
 			name: "invalid TOML returns error",
 			setup: func(t *testing.T) string {
 				t.Helper()
