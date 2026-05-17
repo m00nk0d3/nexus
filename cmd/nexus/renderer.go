@@ -268,14 +268,14 @@ func renderContextPanel(view activeView, worktrees []domain.Worktree, worktreeId
 					body = "(no description)"
 				}
 				content = fmt.Sprintf(
-					"Context: PR #%d\n%s\n\nGH Title: %s\nAuthor: @%s\nStatus: %s %s\nLabels: %s\n\n%s\n\nAGENT COMMANDS:\n[a] Spawn Claude Code\n[c] Spawn Copilot\n[s] Open Shell in WT",
-					pr.Number, titleTrunc, titleTrunc, pr.Author, statusDot, pr.State, labels, body,
+					"Context: PR #%d\n%s\n\nGH Title: %s\nAuthor: @%s\nStatus: %s %s\nLabels: %s\n\n%s\n\nAGENT COMMANDS:\n[a] Spawn Claude Code\n[c] Spawn Copilot\n[f] Spawn Aider\n[s] Open Shell in WT",
+					pr.Number, titleTrunc, pr.Title, pr.Author, statusDot, pr.State, labels, body,
 				)
 			} else {
 				const pathLabel = "Path: "
 				pathTrunc := truncateStr(wt.Path, ctxInner-len(pathLabel))
 				content = fmt.Sprintf(
-					"Context: %s\nBranch: %s\nPath: %s\n\nAGENT COMMANDS:\n[a] Spawn Claude Code\n[c] Spawn Copilot\n[s] Open Shell in WT",
+					"Context: %s\nBranch: %s\nPath: %s\n\nAGENT COMMANDS:\n[a] Spawn Claude Code\n[c] Spawn Copilot\n[f] Spawn Aider\n[s] Open Shell in WT",
 					filepath.Base(wt.Path), wt.Branch, pathTrunc,
 				)
 			}
