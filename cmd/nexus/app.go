@@ -103,8 +103,12 @@ type Model struct {
 	db *data.DB
 
 	// Copilot prompt state
-	copilotPromptActive bool           // true while the inline Copilot prompt is open
+	copilotPromptActive bool            // true while the inline Copilot prompt is open
 	copilotPromptInput  textinput.Model // text input for entering the Copilot prompt
+
+	// Claude prompt state
+	claudePromptActive bool            // true while the inline Claude prompt is open
+	claudePromptInput  textinput.Model // text input for entering the Claude prompt
 }
 
 // NewModel creates and returns a new Model instance with all required fields initialized.
@@ -189,6 +193,35 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Non-key message: fall through to the main switch to handle it normally.
 	}
 
+	// While the Claude inline prompt is open, route key events to the textinput.
+	// Non-key messages fall through to the main switch below.
+	if m.claudePromptActive {
+		if keyMsg, ok := msg.(tea.KeyMsg); ok {
+			switch keyMsg.Type {
+			case tea.KeyEnter:
+				prompt := strings.TrimSpace(m.claudePromptInput.Value())
+				if prompt == "" {
+					return m, nil
+				}
+				m.claudePromptActive = false
+				if selected, ok := m.selectedWorktree(); ok {
+					return m, m.spawnClaudeCmd(selected.Path, prompt)
+				}
+				m.claudePromptInput.SetValue("")
+				return m, nil
+			case tea.KeyEsc:
+				m.claudePromptActive = false
+				m.claudePromptInput.SetValue("")
+				return m, nil
+			default:
+				var cmd tea.Cmd
+				m.claudePromptInput, cmd = m.claudePromptInput.Update(keyMsg)
+				return m, cmd
+			}
+		}
+		// Non-key message: fall through to the main switch to handle it normally.
+	}
+
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		switch msg.Type {
@@ -256,6 +289,21 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						return m, focusCmd
 					}
 				}
+			case "a", "A":
+				if m.view == viewWorktrees && m.Config.AIAgents.ClaudeEnabled {
+					if _, ok := m.selectedWorktree(); ok {
+						if _, err := resolveClaudeBinary(m.Config); err != nil {
+							m.Error = fmt.Sprintf("claude binary not found: %v", err)
+							return m, nil
+						}
+						ti := textinput.New()
+						ti.Placeholder = "Enter Claude prompt…"
+						focusCmd := ti.Focus()
+						m.claudePromptInput = ti
+						m.claudePromptActive = true
+						return m, focusCmd
+					}
+				}
 			}
 		}
 
@@ -296,6 +344,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case agentDoneMsg:
 		m.copilotPromptActive = false
 		m.copilotPromptInput.SetValue("")
+		m.claudePromptActive = false
+		m.claudePromptInput.SetValue("")
 		if m.db != nil {
 			entry := data.AgentHistoryEntry{
 				AgentName: msg.agentName,
@@ -354,6 +404,16 @@ func (m *Model) View() string {
 		prompt := theme.RenderBox(
 			"Spawn Copilot",
 			fmt.Sprintf("> %s\n\nEnter confirm  •  Esc cancel", m.copilotPromptInput.View()),
+		)
+		return fmt.Sprintf("%s\n\n%s", prompt, baseView)
+	}
+
+	// When the Claude inline prompt is active, overlay it on top of the normal view.
+	if m.claudePromptActive {
+		theme := styles.NewTheme(styles.Themes[m.themeIdx])
+		prompt := theme.RenderBox(
+			"Spawn Claude Code",
+			fmt.Sprintf("> %s\n\nEnter confirm  •  Esc cancel", m.claudePromptInput.View()),
 		)
 		return fmt.Sprintf("%s\n\n%s", prompt, baseView)
 	}
@@ -462,6 +522,51 @@ func (m *Model) spawnCopilotCmd(worktreePath, prompt string) tea.Cmd {
 		}
 		return agentDoneMsg{
 			agentName: "copilot",
+			prompt:    prompt,
+			exitCode:  exitCode,
+			startedAt: startedAt,
+		}
+	})
+}
+
+// resolveClaudeBinary returns the resolved path for the Claude binary.
+// It reads cfg.AIAgents.ClaudeBinary, defaulting to "claude", then
+// uses exec.LookPath to verify the binary is on the PATH.
+func resolveClaudeBinary(cfg *domain.Config) (string, error) {
+	bin := cfg.AIAgents.ClaudeBinary
+	if bin == "" {
+		bin = "claude"
+	}
+	return exec.LookPath(bin)
+}
+
+// buildClaudeCmd constructs the exec.Cmd for running the Claude CLI with the
+// given prompt in the specified worktree directory.
+// It is extracted as a top-level function to keep it unit-testable.
+func buildClaudeCmd(worktreePath, prompt, binaryPath string) *exec.Cmd {
+	cmd := exec.Command(binaryPath, prompt)
+	cmd.Dir = worktreePath
+	return cmd
+}
+
+// spawnClaudeCmd returns a Cmd that runs the Claude binary in the worktree
+// directory and dispatches agentDoneMsg when the process exits.
+func (m *Model) spawnClaudeCmd(worktreePath, prompt string) tea.Cmd {
+	binaryPath, err := resolveClaudeBinary(m.Config)
+	if err != nil {
+		m.Error = fmt.Sprintf("claude binary not found: %v", err)
+		return nil
+	}
+	startedAt := time.Now()
+	cmd := buildClaudeCmd(worktreePath, prompt, binaryPath)
+	return tea.ExecProcess(cmd, func(err error) tea.Msg {
+		exitCode := 0
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
+			exitCode = exitErr.ExitCode()
+		}
+		return agentDoneMsg{
+			agentName: "claude",
 			prompt:    prompt,
 			exitCode:  exitCode,
 			startedAt: startedAt,
