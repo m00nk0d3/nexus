@@ -200,6 +200,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, m.switchWorktreeCmd(selected.Path)
 			}
 			return m, nil
+		case tea.KeyEsc:
+			return m, tea.Quit
 		case tea.KeyCtrlC:
 			return m, tea.Quit
 		case tea.KeyCtrlN:

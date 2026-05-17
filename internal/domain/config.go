@@ -44,5 +44,6 @@ func DefaultConfig() *Config {
 		Appearance: AppearanceConfig{Theme: "digital-noir"},
 		Worktrees:  WorktreesConfig{BaseBranch: "main", WorktreeRoot: "../worktrees"},
 		GitHub:     GitHubConfig{AutoSync: true, SyncIntervalMinutes: 5},
+		AIAgents:   AIAgentsConfig{CopilotEnabled: true},
 	}
 }
