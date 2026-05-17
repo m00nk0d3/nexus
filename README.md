@@ -1,6 +1,8 @@
 # Nexus
 
-Nexus is a terminal-based worktree and AI-agent command center for managing Git worktrees, syncing GitHub metadata, and launching coding agents with the right repository context.
+![Nexus demo](demo/nexus.gif)
+
+Nexus is a terminal-based worktree and AI-agent command centerfor managing Git worktrees, syncing GitHub metadata, and launching coding agents with the right repository context.
 
 ## What it is
 
