@@ -11,6 +11,24 @@
 
 ---
 
+## Why Nexus?
+
+Modern software development means juggling multiple things at once: several features in flight, a handful of open PRs waiting for review, GitHub issues to reference, and at least one AI agent that swears it can fix everything. Keeping all of that in sync — without losing your mind or your terminal history — is genuinely painful.
+
+**The problems Nexus solves:**
+
+- **Context-switching hell.** Stashing changes, checking out branches, losing your editor state, repeating. Git worktrees are the solution, but their CLI is clunky and easy to forget. Nexus puts your entire worktree landscape on one screen and lets you jump between them instantly.
+
+- **The five-app shuffle.** Terminal for git, browser for GitHub, another terminal for the agent, Slack for the PR link, repeat. Nexus collapses all of that into a single pane of glass: worktrees, PRs, issues, and agent launchers — no browser tab required.
+
+- **AI agents without context.** Spinning up Claude Code or Copilot in the wrong directory (or forgetting which worktree maps to which feature) wastes time and produces wrong answers. Nexus launches agents *inside the correct worktree* automatically, so your AI always has the right repo context.
+
+- **"Which branch had that issue again?"** Nexus links GitHub issues and PRs to their worktrees so you always know what's where. No more `git branch -a | grep vague-memory`.
+
+In short: if you work on multiple features simultaneously and use AI coding tools, Nexus removes the glue work so you can focus on the actual code.
+
+---
+
 ## Features
 
 - **3-pane TUI** — worktree list, GitHub context panel, and detail view in one terminal window
@@ -196,12 +214,40 @@ For more detail, press **`f1`** inside Nexus and open the **Troubleshooting** ta
 
 ## Contributing
 
-1. Fork the repository and create a feature branch
-2. Follow the developer setup in [docs/RUNBOOK.md](docs/RUNBOOK.md)
-3. Run `go test ./...` before submitting a pull request
-4. Open a pull request against `main` with a clear description of the change
+Contributions are welcome! Here's how to get set up and ship something.
 
-Please open an issue before starting large changes so we can align on the approach.
+### Developer setup
+
+```bash
+# 1. Clone the repo
+git clone https://github.com/m00nk0d3/nexus
+cd nexus
+
+# 2. Verify Go 1.25+ is installed
+go version
+
+# 3. Install the GitHub CLI and authenticate
+gh auth login
+
+# 4. Build the project
+go build ./...
+
+# 5. Run Nexus locally (from inside any Git repo)
+go run ./cmd/nexus
+```
+
+For a full developer reference including release procedures and configuration details, see [docs/RUNBOOK.md](docs/RUNBOOK.md).
+
+### Workflow
+
+1. **Open an issue first** — before starting anything non-trivial, open an issue so we can align on the approach and avoid wasted effort.
+2. **Branch naming** — use `feat/issue-<number>-<short-description>` (e.g. `feat/issue-42-worktree-lock-ui`).
+3. **Run tests** before pushing:
+   ```bash
+   go test ./...
+   ```
+4. **Commit messages** follow [Conventional Commits](https://www.conventionalcommits.org/) and must include a body explaining *why* the change was made (see `.copilot/` for the project commit guidelines).
+5. **Open a PR** against `main` with a clear description: what changed, why, and how it was tested.
 
 ---
 
