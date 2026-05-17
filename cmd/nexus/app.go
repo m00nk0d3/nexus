@@ -6,8 +6,10 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
+	"strings"
 	"time"
 
+	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/m00nk0d3/nexus/internal/data"
 	"github.com/m00nk0d3/nexus/internal/domain"
@@ -45,6 +47,15 @@ type syncTickMsg struct{}
 
 // browserOpenErrMsg carries an error from opening an issue or PR in the browser.
 type browserOpenErrMsg struct{ err error }
+
+// agentDoneMsg is dispatched when an AI agent process exits.
+// It carries enough information to log the run and update UI state.
+type agentDoneMsg struct {
+	agentName string
+	prompt    string
+	exitCode  int
+	startedAt time.Time
+}
 
 // activeView represents the currently active main panel view.
 type activeView int
@@ -87,6 +98,13 @@ type Model struct {
 	selectedPRIdx    int                  // Currently selected PR index
 	focused          focusedPanel         // Which panel currently has keyboard focus
 	ctxScrollOffset  int                  // Scroll position within the context panel
+
+	// DB is optional; when non-nil, agent runs are logged to agent_history.
+	db *data.DB
+
+	// Copilot prompt state
+	copilotPromptActive bool           // true while the inline Copilot prompt is open
+	copilotPromptInput  textinput.Model // text input for entering the Copilot prompt
 }
 
 // NewModel creates and returns a new Model instance with all required fields initialized.
@@ -141,6 +159,35 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}
 
+	// While the Copilot inline prompt is open, route key events to the textinput.
+	// Non-key messages (e.g. agentDoneMsg, tea.WindowSizeMsg) fall through to
+	// the main switch below so they are still handled correctly.
+	if m.copilotPromptActive {
+		if keyMsg, ok := msg.(tea.KeyMsg); ok {
+			switch keyMsg.Type {
+			case tea.KeyEnter:
+				prompt := strings.TrimSpace(m.copilotPromptInput.Value())
+				if prompt == "" {
+					return m, nil
+				}
+				m.copilotPromptActive = false
+				if selected, ok := m.selectedWorktree(); ok {
+					return m, m.spawnCopilotCmd(selected.Path, prompt)
+				}
+				return m, nil
+			case tea.KeyEsc:
+				m.copilotPromptActive = false
+				m.copilotPromptInput.SetValue("")
+				return m, nil
+			default:
+				var cmd tea.Cmd
+				m.copilotPromptInput, cmd = m.copilotPromptInput.Update(keyMsg)
+				return m, cmd
+			}
+		}
+		// Non-key message: fall through to the main switch to handle it normally.
+	}
+
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		switch msg.Type {
@@ -191,6 +238,21 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						return m, m.switchWorktreeCmd(selected.Path)
 					}
 				}
+			case "c", "C":
+				if m.view == viewWorktrees && m.Config.AIAgents.CopilotEnabled {
+					if _, ok := m.selectedWorktree(); ok {
+						if _, err := exec.LookPath("gh"); err != nil {
+							m.Error = "gh not found on $PATH — install GitHub CLI to use Copilot"
+							return m, nil
+						}
+						ti := textinput.New()
+						ti.Placeholder = "Enter Copilot prompt…"
+						focusCmd := ti.Focus()
+						m.copilotPromptInput = ti
+						m.copilotPromptActive = true
+						return m, focusCmd
+					}
+				}
 			}
 		}
 
@@ -226,6 +288,22 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case browserOpenErrMsg:
 		if msg.err != nil {
 			m.Error = fmt.Sprintf("Failed to open in browser: %v", msg.err)
+		}
+
+	case agentDoneMsg:
+		m.copilotPromptActive = false
+		m.copilotPromptInput.SetValue("")
+		if m.db != nil {
+			entry := data.AgentHistoryEntry{
+				AgentName: msg.agentName,
+				Prompt:    msg.prompt,
+				ExitCode:  msg.exitCode,
+				StartedAt: msg.startedAt,
+				EndedAt:   time.Now(),
+			}
+			if err := data.LogAgentRun(m.db, entry); err != nil {
+				m.Error = fmt.Sprintf("failed to log agent run: %v", err)
+			}
 		}
 
 	case githubSyncedMsg:
@@ -265,6 +343,15 @@ func (m *Model) View() string {
 		baseView = m.activeModal.View()
 	} else {
 		baseView = renderFull(m.Worktrees, m.selectedIdx, m.RepoPath, m.themeIdx, m.view, m.width, m.height, m.syncing, m.lastSynced, m.syncErr, m.issues, m.selectedIssueIdx, m.prs, m.selectedPRIdx, m.focused, m.ctxScrollOffset)
+	}
+
+	// When the Copilot inline prompt is active, overlay it on top of the normal view.
+	if m.copilotPromptActive {
+		return fmt.Sprintf(
+			"Spawn Copilot\n> Enter prompt: %s\n\nEnter confirm  •  Esc cancel\n\n%s",
+			m.copilotPromptInput.View(),
+			baseView,
+		)
 	}
 
 	if m.Error == "" {
@@ -346,6 +433,35 @@ func (m *Model) switchWorktreeCmd(path string) tea.Cmd {
 	cmd := buildShellCmd(path)
 	return tea.ExecProcess(cmd, func(err error) tea.Msg {
 		return worktreeSwitchedMsg{err: err}
+	})
+}
+
+// buildCopilotCmd constructs the exec.Cmd for running gh copilot suggest
+// with the given prompt in the specified worktree directory.
+// It is extracted as a top-level function to keep it unit-testable.
+func buildCopilotCmd(worktreePath, prompt string) *exec.Cmd {
+	cmd := exec.Command("gh", "copilot", "suggest", prompt)
+	cmd.Dir = worktreePath
+	return cmd
+}
+
+// spawnCopilotCmd returns a Cmd that runs gh copilot suggest in the worktree
+// directory and dispatches agentDoneMsg when the process exits.
+func (m *Model) spawnCopilotCmd(worktreePath, prompt string) tea.Cmd {
+	startedAt := time.Now()
+	cmd := buildCopilotCmd(worktreePath, prompt)
+	return tea.ExecProcess(cmd, func(err error) tea.Msg {
+		exitCode := 0
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
+			exitCode = exitErr.ExitCode()
+		}
+		return agentDoneMsg{
+			agentName: "copilot",
+			prompt:    prompt,
+			exitCode:  exitCode,
+			startedAt: startedAt,
+		}
 	})
 }
 

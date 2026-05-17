@@ -4,6 +4,8 @@ import (
 	"database/sql"
 	"embed"
 	"fmt"
+	"os"
+	"path/filepath"
 
 	_ "modernc.org/sqlite"
 )
@@ -103,4 +105,15 @@ func (db *DB) applyMigration(name, content string) error {
 		return fmt.Errorf("commit migration %s: %w", name, err)
 	}
 	return nil
+}
+
+// DefaultDBPath returns the default path for the Nexus SQLite database,
+// located at ~/.nexus/nexus.db. Falls back to ./nexus.db if the home
+// directory cannot be determined.
+func DefaultDBPath() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		home = "."
+	}
+	return filepath.Join(home, ".nexus", "nexus.db")
 }
