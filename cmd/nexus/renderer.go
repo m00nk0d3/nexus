@@ -53,7 +53,7 @@ var navItems = []navItem{
 // renderFull builds the complete 3-pane TUI layout.
 // termWidth is the terminal column count; 0 falls back to defaultTermWidth.
 // termHeight is the terminal row count; 0 disables explicit panel height.
-func renderFull(worktrees []domain.Worktree, selectedIdx int, repoPath string, themeIdx int, view activeView, termWidth, termHeight int, syncing bool, lastSynced time.Time, syncErr error, issues []domain.Issue, selectedIssueIdx int, prs []domain.PullRequest, selectedPRIdx int, focused focusedPanel, ctxScroll int) string {
+func renderFull(worktrees []domain.Worktree, selectedIdx int, repoPath string, themeIdx int, view activeView, termWidth, termHeight int, syncing bool, lastSynced time.Time, syncErr error, issues []domain.Issue, selectedIssueIdx int, prs []domain.PullRequest, selectedPRIdx int, focused focusedPanel, ctxScroll int, currentPage int) string {
 	if termWidth <= 0 {
 		termWidth = defaultTermWidth
 	}
@@ -79,19 +79,48 @@ func renderFull(worktrees []domain.Worktree, selectedIdx int, repoPath string, t
 	header := renderHeader(repoPath, theme, headerInner)
 	nav := renderNavRail(theme, panelHeight, view, focused == panelNav)
 
+	// Apply pagination slicing for issue/PR list panels.
+	pageStart := currentPage * pageSize
+	visibleIssues := issues
+	visibleSelectedIssueIdx := selectedIssueIdx
+	if len(issues) > pageSize {
+		end := pageStart + pageSize
+		if end > len(issues) {
+			end = len(issues)
+		}
+		visibleIssues = issues[pageStart:end]
+		visibleSelectedIssueIdx = selectedIssueIdx - pageStart
+		if visibleSelectedIssueIdx < 0 {
+			visibleSelectedIssueIdx = 0
+		}
+	}
+	visiblePRs := prs
+	visibleSelectedPRIdx := selectedPRIdx
+	if len(prs) > pageSize {
+		end := pageStart + pageSize
+		if end > len(prs) {
+			end = len(prs)
+		}
+		visiblePRs = prs[pageStart:end]
+		visibleSelectedPRIdx = selectedPRIdx - pageStart
+		if visibleSelectedPRIdx < 0 {
+			visibleSelectedPRIdx = 0
+		}
+	}
+
 	var list string
 	switch view {
 	case viewIssues:
-		list = renderIssueList(issues, selectedIssueIdx, worktrees, theme, listInner, panelHeight, focused == panelList)
+		list = renderIssueList(visibleIssues, visibleSelectedIssueIdx, worktrees, theme, listInner, panelHeight, focused == panelList)
 	case viewPRs:
-		list = renderPRList(prs, selectedPRIdx, theme, listInner, panelHeight, focused == panelList)
+		list = renderPRList(visiblePRs, visibleSelectedPRIdx, theme, listInner, panelHeight, focused == panelList)
 	default:
 		list = renderWorktreePanel(worktrees, selectedIdx, theme, listInner, panelHeight, focused == panelList)
 	}
 
 	ctx := renderContextPanel(view, worktrees, selectedIdx, issues, selectedIssueIdx, prs, selectedPRIdx, theme, panelHeight, ctxScroll, focused == panelCtx, ctxInner)
 	mainRow := lipgloss.JoinHorizontal(lipgloss.Top, nav, list, ctx)
-	footer := renderFooterBar(theme, time.Now().UTC().Format("2006-01-02"), termWidth, syncing, lastSynced, syncErr, view)
+	footer := renderFooterBar(theme, time.Now().UTC().Format("2006-01-02"), termWidth, syncing, lastSynced, syncErr, view, issues, prs, currentPage)
 	actionBar := renderActionBar(theme, termWidth)
 
 	return lipgloss.JoinVertical(lipgloss.Left, header, mainRow, footer, actionBar)
@@ -458,7 +487,7 @@ func clipContent(content string, offset, maxLines int) string {
 	return strings.Join(lines, "\n")
 }
 
-func renderFooterBar(theme styles.Theme, date string, termWidth int, syncing bool, lastSynced time.Time, syncErr error, view activeView) string {
+func renderFooterBar(theme styles.Theme, date string, termWidth int, syncing bool, lastSynced time.Time, syncErr error, view activeView, issues []domain.Issue, prs []domain.PullRequest, currentPage int) string {
 	hints := footerHintsDefault
 	if view == viewPRs {
 		hints = footerHintsPRs
@@ -479,17 +508,41 @@ func renderFooterBar(theme styles.Theme, date string, termWidth int, syncing boo
 		}
 	}
 
+	var pageInfo string
+	switch view {
+	case viewIssues:
+		if len(issues) > pageSize {
+			totalPages := (len(issues) + pageSize - 1) / pageSize
+			start := currentPage*pageSize + 1
+			end := start + pageSize - 1
+			if end > len(issues) {
+				end = len(issues)
+			}
+			pageInfo = fmt.Sprintf(" | Page %d/%d (%d-%d of %d issues)", currentPage+1, totalPages, start, end, len(issues))
+		}
+	case viewPRs:
+		if len(prs) > pageSize {
+			totalPages := (len(prs) + pageSize - 1) / pageSize
+			start := currentPage*pageSize + 1
+			end := start + pageSize - 1
+			if end > len(prs) {
+				end = len(prs)
+			}
+			pageInfo = fmt.Sprintf(" | Page %d/%d (%d-%d of %d PRs)", currentPage+1, totalPages, start, end, len(prs))
+		}
+	}
+
 	// Build the right side (date + optional sync status) first, then truncate
 	// only the hints so the sync status is never clipped on narrow terminals.
 	right := fmt.Sprintf("  [%s]", date)
 	if syncStatus != "" {
 		right += "  " + syncStatus
 	}
-	maxHints := termWidth - len([]rune(right))
+	maxHints := termWidth - len([]rune(right)) - len([]rune(pageInfo))
 	if maxHints < 0 {
 		maxHints = 0
 	}
-	content := truncateStr(hints, maxHints) + right
+	content := truncateStr(hints, maxHints) + pageInfo + right
 
 	return theme.GetStyle("status-bar").Width(termWidth).Render(content)
 }
