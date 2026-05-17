@@ -174,6 +174,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if selected, ok := m.selectedWorktree(); ok {
 					return m, m.spawnCopilotCmd(selected.Path, prompt)
 				}
+				m.copilotPromptInput.SetValue("")
 				return m, nil
 			case tea.KeyEsc:
 				m.copilotPromptActive = false
@@ -347,11 +348,12 @@ func (m *Model) View() string {
 
 	// When the Copilot inline prompt is active, overlay it on top of the normal view.
 	if m.copilotPromptActive {
-		return fmt.Sprintf(
-			"Spawn Copilot\n> Enter prompt: %s\n\nEnter confirm  •  Esc cancel\n\n%s",
-			m.copilotPromptInput.View(),
-			baseView,
+		theme := styles.NewTheme(styles.Themes[m.themeIdx])
+		prompt := theme.RenderBox(
+			"Spawn Copilot",
+			fmt.Sprintf("> %s\n\nEnter confirm  •  Esc cancel", m.copilotPromptInput.View()),
 		)
+		return fmt.Sprintf("%s\n\n%s", prompt, baseView)
 	}
 
 	if m.Error == "" {

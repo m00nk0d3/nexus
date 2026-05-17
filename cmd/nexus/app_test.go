@@ -1145,8 +1145,7 @@ func TestModel_WindowSizeMsg_StoresDimensions(t *testing.T) {
 }
 
 
-
-// TestModelUpdate_SKeyOpensShellInWorktree verifies that pressing "s" in
+// TestModelUpdate_SKeyOpensShellInWorktreeverifies that pressing "s" in
 // viewWorktrees with a selected worktree triggers switchWorktreeCmd.
 func TestModelUpdate_SKeyOpensShellInWorktree(t *testing.T) {
 tests := []struct {
