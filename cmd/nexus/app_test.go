@@ -1846,3 +1846,141 @@ func TestModel_Enter_InViewWorktrees_SwitchesWorktree(t *testing.T) {
 	assert.NotNil(t, cmd, "should return a switchWorktreeCmd")
 }
 
+// ---------------------------------------------------------------------------
+// Phase 3: Aider launcher tests
+// ---------------------------------------------------------------------------
+
+// TestBuildAiderCmd_PassesSelectedFiles verifies that buildAiderCmd constructs
+// an exec.Cmd with "aider" as the binary, the files as positional arguments,
+// and Dir set to the worktree path.
+func TestBuildAiderCmd_PassesSelectedFiles(t *testing.T) {
+	tests := []struct {
+		name         string
+		worktreePath string
+		files        []string
+		wantArgs     []string
+	}{
+		{
+			name:         "single file",
+			worktreePath: "/tmp/my-wt",
+			files:        []string{"main.go"},
+			wantArgs:     []string{"aider", "main.go"},
+		},
+		{
+			name:         "multiple files",
+			worktreePath: "/tmp/my-wt",
+			files:        []string{"main.go", "go.mod", "README.md"},
+			wantArgs:     []string{"aider", "main.go", "go.mod", "README.md"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cmd := buildAiderCmd(tt.worktreePath, tt.files)
+			require.NotNil(t, cmd)
+			assert.Equal(t, tt.wantArgs, cmd.Args)
+			assert.Equal(t, tt.worktreePath, cmd.Dir)
+		})
+	}
+}
+
+// TestSpawnAiderCmd_PassesSelectedFiles verifies that spawnAiderCmd returns a
+// non-nil Cmd and that the underlying exec.Cmd receives the correct files.
+func TestSpawnAiderCmd_PassesSelectedFiles(t *testing.T) {
+	model := NewModel()
+	require.NotNil(t, model)
+
+	files := []string{"cmd/nexus/app.go", "go.mod"}
+	cmd := model.spawnAiderCmd("/tmp/my-wt", files)
+
+	assert.NotNil(t, cmd, "spawnAiderCmd must return a non-nil tea.Cmd")
+}
+
+// TestModel_F_Key_AiderDisabled_SetsError verifies that pressing 'f' when
+// AiderEnabled=false shows a user-visible error and returns nil Cmd.
+func TestModel_F_Key_AiderDisabled_SetsError(t *testing.T) {
+	model := NewModel()
+	model.Config.AIAgents.AiderEnabled = false
+	model.view = viewWorktrees
+	model.Worktrees = []domain.Worktree{
+		{Path: "/tmp/wt", Branch: "main", CommitSHA: "abc"},
+	}
+
+	updated, cmd := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("f")})
+	updatedModel, ok := updated.(*Model)
+	require.True(t, ok)
+
+	assert.Nil(t, cmd)
+	assert.Contains(t, updatedModel.Error, "aider_enabled")
+}
+
+// TestModel_F_Key_NoWorktree_SetsError verifies that pressing 'f' with
+// AiderEnabled=true but no worktree selected shows an error.
+func TestModel_F_Key_NoWorktree_SetsError(t *testing.T) {
+	model := NewModel()
+	model.Config.AIAgents.AiderEnabled = true
+	model.view = viewWorktrees
+	// no worktrees
+
+	updated, cmd := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("f")})
+	updatedModel, ok := updated.(*Model)
+	require.True(t, ok)
+
+	assert.Nil(t, cmd)
+	assert.NotEmpty(t, updatedModel.Error)
+}
+
+// TestModel_F_Key_WrongView_SetsError verifies that pressing 'f' in a non-worktrees
+// view (e.g. viewIssues) shows a helpful error.
+func TestModel_F_Key_WrongView_SetsError(t *testing.T) {
+	model := NewModel()
+	model.Config.AIAgents.AiderEnabled = true
+	model.view = viewIssues
+	model.Worktrees = []domain.Worktree{
+		{Path: "/tmp/wt", Branch: "main", CommitSHA: "abc"},
+	}
+
+	updated, cmd := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("f")})
+	updatedModel, ok := updated.(*Model)
+	require.True(t, ok)
+
+	assert.Nil(t, cmd)
+	assert.Contains(t, updatedModel.Error, "Worktrees view")
+}
+
+// TestModel_AiderFilesFetchedMsg_OpensModal verifies that receiving a successful
+// aiderFilesFetchedMsg sets activeModal to an AiderFilePicker.
+func TestModel_AiderFilesFetchedMsg_OpensModal(t *testing.T) {
+	model := NewModel()
+	require.NotNil(t, model)
+
+	files := []string{"main.go", "go.mod"}
+	updated, cmd := model.Update(aiderFilesFetchedMsg{
+		worktreePath: "/tmp/wt",
+		files:        files,
+	})
+	m, ok := updated.(*Model)
+	require.True(t, ok)
+
+	assert.Nil(t, cmd)
+	assert.NotNil(t, m.activeModal, "active modal should be set after files are fetched")
+	assert.Equal(t, "Aider — Select Files", m.activeModal.Title())
+}
+
+// TestModel_AiderFilesFetchedMsg_ErrorSetsError verifies that an error in
+// aiderFilesFetchedMsg is surfaced as m.Error and no modal is opened.
+func TestModel_AiderFilesFetchedMsg_ErrorSetsError(t *testing.T) {
+	model := NewModel()
+	require.NotNil(t, model)
+
+	updated, cmd := model.Update(aiderFilesFetchedMsg{
+		worktreePath: "/tmp/wt",
+		err:          errors.New("git failed"),
+	})
+	m, ok := updated.(*Model)
+	require.True(t, ok)
+
+	assert.Nil(t, cmd)
+	assert.Nil(t, m.activeModal)
+	assert.Contains(t, m.Error, "Failed to list files")
+}

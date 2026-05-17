@@ -1048,14 +1048,14 @@ func TestGitCommand_FetchRemoteBranch(t *testing.T) {
 
 func TestGitCommand_CheckoutPRWorktree(t *testing.T) {
 	tests := []struct {
-		name         string
-		repoPath     string
-		path         string
-		branch       string
-		fetchErr     error
-		worktreeErr  error
-		wantCallSeq  [][]string
-		expectErr    string
+		name        string
+		repoPath    string
+		path        string
+		branch      string
+		fetchErr    error
+		worktreeErr error
+		wantCallSeq [][]string
+		expectErr   string
 	}{
 		{
 			name:     "fetches then creates worktree",
@@ -1113,6 +1113,96 @@ func TestGitCommand_CheckoutPRWorktree(t *testing.T) {
 
 			require.NoError(t, err)
 			require.Equal(t, tt.wantCallSeq, callSeq)
+		})
+	}
+}
+
+func TestGitCommand_ListModifiedFiles(t *testing.T) {
+	tests := []struct {
+		name       string
+		repoPath   string
+		targetPath string
+		output     string
+		runErr     error
+		wantFiles  []string
+		wantArgs   []string
+		expectErr  string
+	}{
+		{
+			name:       "invokes correct git ls-files args",
+			repoPath:   "/repo/main",
+			targetPath: "/repo/feature",
+			output:     "",
+			wantArgs:   []string{"ls-files", "--modified", "--others", "--exclude-standard"},
+			wantFiles:  nil,
+		},
+		{
+			name:       "parses single modified file",
+			repoPath:   "/repo/main",
+			targetPath: "/repo/feature",
+			output:     "main.go\n",
+			wantArgs:   []string{"ls-files", "--modified", "--others", "--exclude-standard"},
+			wantFiles:  []string{"main.go"},
+		},
+		{
+			name:       "parses multiple files and trims blank lines",
+			repoPath:   "/repo/main",
+			targetPath: "/repo/feature",
+			output:     "main.go\ngo.mod\nREADME.md\n",
+			wantArgs:   []string{"ls-files", "--modified", "--others", "--exclude-standard"},
+			wantFiles:  []string{"main.go", "go.mod", "README.md"},
+		},
+		{
+			name:       "returns nil slice for empty output",
+			repoPath:   "/repo/main",
+			targetPath: "/repo/feature",
+			output:     "\n\n",
+			wantArgs:   []string{"ls-files", "--modified", "--others", "--exclude-standard"},
+			wantFiles:  nil,
+		},
+		{
+			name:       "propagates runner error",
+			repoPath:   "/repo/main",
+			targetPath: "/repo/feature",
+			runErr:     errors.New("git failed"),
+			wantArgs:   []string{"ls-files", "--modified", "--others", "--exclude-standard"},
+			expectErr:  "list modified files",
+		},
+		{
+			name:       "uses target path not repo path as runner arg",
+			repoPath:   "/repo/main",
+			targetPath: "/repo/feature-branch",
+			output:     "cmd/nexus/app.go\n",
+			wantArgs:   []string{"ls-files", "--modified", "--others", "--exclude-standard"},
+			wantFiles:  []string{"cmd/nexus/app.go"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var calledPath string
+			var calledArgs []string
+
+			runner := func(repoPath string, args ...string) (string, error) {
+				calledPath = repoPath
+				calledArgs = append([]string{}, args...)
+				return tt.output, tt.runErr
+			}
+
+			cmd := NewGitCommandWithRunner(tt.repoPath, runner)
+			files, err := cmd.ListModifiedFiles(tt.targetPath)
+
+			assert.Equal(t, tt.targetPath, calledPath)
+			assert.Equal(t, tt.wantArgs, calledArgs)
+
+			if tt.expectErr != "" {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.expectErr)
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantFiles, files)
 		})
 	}
 }
