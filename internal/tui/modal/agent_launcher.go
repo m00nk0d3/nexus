@@ -35,6 +35,7 @@ type AgentLauncherModal struct {
 	worktreePath  string
 	promptInput   textinput.Model
 	selectedAgent agentOption
+	width         int // terminal width, set by the parent view
 }
 
 // newAgentLauncherModal is the internal constructor used in production and in tests.
@@ -192,6 +193,18 @@ func (m *AgentLauncherModal) selectAgent(opt agentOption) (tea.Model, tea.Cmd) {
 	return m, focusCmd
 }
 
+// SetWidth receives the terminal width from the parent view so the text input
+// can span the full inner content area of the popup box (total width minus the
+// 4-column border+padding overhead added by RenderBox).
+func (m *AgentLauncherModal) SetWidth(w int) {
+	m.width = w
+	inner := w - 4
+	if inner < 20 {
+		inner = 20
+	}
+	m.promptInput.Width = inner
+}
+
 // Title returns the modal title for themed overlay rendering.
 func (m *AgentLauncherModal) Title() string { return "SPAWN AGENT" }
 
@@ -227,6 +240,6 @@ func (m *AgentLauncherModal) viewPrompt() string {
 	var b strings.Builder
 	b.WriteString(fmt.Sprintf("Spawning %s in:\n%s\n\n", m.selectedAgent.name, m.worktreePath))
 	b.WriteString(m.promptInput.View())
-	b.WriteString("\n\nEnter confirm  •  Esc cancel")
+	b.WriteString("\n\nEnter confirm (prompt optional)  •  Esc cancel")
 	return b.String()
 }

@@ -1335,6 +1335,13 @@ func TestBuildCopilotCmd_BuildsCorrectCommand(t *testing.T) {
 			wantArgs:     []string{"gh", "copilot", "-i", "add unit tests for auth handler"},
 			wantDir:      "/repo/feat-branch",
 		},
+		{
+			name:         "empty prompt omits prompt arg",
+			worktreePath: "/tmp/my-worktree",
+			prompt:       "",
+			wantArgs:     []string{"gh", "copilot", "-i"},
+			wantDir:      "/tmp/my-worktree",
+		},
 	}
 
 	for _, tt := range tests {
@@ -1377,22 +1384,21 @@ func TestModel_CopilotPrompt_EscClearsInputValue(t *testing.T) {
 		"Esc should clear the copilot prompt input value")
 }
 
-// TestModel_CopilotPrompt_EnterWithEmptyPrompt_DoesNotSpawn verifies that
-// pressing Enter with an empty (or whitespace-only) prompt is a no-op.
-func TestModel_CopilotPrompt_EnterWithEmptyPrompt_DoesNotSpawn(t *testing.T) {
+// TestModel_CopilotPrompt_EnterWithEmptyPrompt_Spawns verifies that
+// pressing Enter with an empty prompt spawns the agent without a prompt arg.
+func TestModel_CopilotPrompt_EnterWithEmptyPrompt_Spawns(t *testing.T) {
 	model := NewModel()
 	model.copilotPromptActive = true
+	model.Worktrees = []domain.Worktree{{Path: "/tmp/wt", Branch: "main", CommitSHA: "abc"}}
 	// Leave input value empty (default)
 
 	updated, cmd := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	updatedModel, ok := updated.(*Model)
 	require.True(t, ok)
 
-	// With an empty prompt, state should not change (prompt stays active)
-	// and no cmd should be spawned.
-	assert.True(t, updatedModel.copilotPromptActive,
-		"empty-prompt Enter should leave copilotPromptActive true")
-	assert.Nil(t, cmd, "empty-prompt Enter should not return a spawn Cmd")
+	assert.False(t, updatedModel.copilotPromptActive,
+		"empty-prompt Enter should close the copilot prompt")
+	assert.NotNil(t, cmd, "empty-prompt Enter should return a spawn Cmd")
 }
 
 // TestModel_AgentDoneMsg_ClearsPrompt verifies that receiving agentDoneMsg
@@ -1499,6 +1505,14 @@ func TestSpawnClaudeCmd_UsesCustomBinaryPath(t *testing.T) {
 			binaryPath:   "/usr/local/bin/claude",
 			wantArgs:     []string{"/usr/local/bin/claude", "write unit tests"},
 			wantDir:      "/repo/feat-branch",
+		},
+		{
+			name:         "empty prompt omits prompt arg",
+			worktreePath: "/tmp/my-worktree",
+			prompt:       "",
+			binaryPath:   "claude",
+			wantArgs:     []string{"claude"},
+			wantDir:      "/tmp/my-worktree",
 		},
 	}
 
@@ -1654,19 +1668,22 @@ func TestModel_ClaudePrompt_EscClearsInputValue(t *testing.T) {
 		"Esc should clear the claude prompt input value")
 }
 
-// TestModel_ClaudePrompt_EnterWithEmptyPrompt_DoesNotSpawn verifies that
-// pressing Enter with an empty (or whitespace-only) prompt is a no-op.
-func TestModel_ClaudePrompt_EnterWithEmptyPrompt_DoesNotSpawn(t *testing.T) {
+// TestModel_ClaudePrompt_EnterWithEmptyPrompt_Spawns verifies that
+// pressing Enter with an empty prompt spawns the agent without a prompt arg.
+func TestModel_ClaudePrompt_EnterWithEmptyPrompt_Spawns(t *testing.T) {
 	model := NewModel()
 	model.claudePromptActive = true
+	model.Config.AIAgents.ClaudeEnabled = true
+	model.Config.AIAgents.ClaudeBinary = "go" // "go" is always on PATH when running go test
+	model.Worktrees = []domain.Worktree{{Path: "/tmp/wt", Branch: "main", CommitSHA: "abc"}}
 
 	updated, cmd := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	updatedModel, ok := updated.(*Model)
 	require.True(t, ok)
 
-	assert.True(t, updatedModel.claudePromptActive,
-		"empty-prompt Enter should leave claudePromptActive true")
-	assert.Nil(t, cmd, "empty-prompt Enter should not return a spawn Cmd")
+	assert.False(t, updatedModel.claudePromptActive,
+		"empty-prompt Enter should close the claude prompt")
+	assert.NotNil(t, cmd, "empty-prompt Enter should return a spawn Cmd")
 }
 
 // TestModel_AgentDoneMsg_ClearsClaudePrompt verifies that receiving agentDoneMsg

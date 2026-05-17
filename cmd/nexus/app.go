@@ -203,9 +203,6 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			switch keyMsg.Type {
 			case tea.KeyEnter:
 				prompt := strings.TrimSpace(m.copilotPromptInput.Value())
-				if prompt == "" {
-					return m, nil
-				}
 				m.copilotPromptActive = false
 				if selected, ok := m.selectedWorktree(); ok {
 					return m, m.spawnCopilotCmd(selected.Path, prompt)
@@ -232,9 +229,6 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			switch keyMsg.Type {
 			case tea.KeyEnter:
 				prompt := strings.TrimSpace(m.claudePromptInput.Value())
-				if prompt == "" {
-					return m, nil
-				}
 				m.claudePromptActive = false
 				if selected, ok := m.selectedWorktree(); ok {
 					return m, m.spawnClaudeCmd(selected.Path, prompt)
@@ -523,22 +517,25 @@ func (m *Model) View() string {
 	// Overlay helpers — center a themed RenderBox over the full base view.
 	overlay := func(title, content string) string {
 		theme := styles.NewTheme(styles.Themes[m.themeIdx])
-		box := theme.RenderBox(title, content)
+		box := theme.RenderBox(title, content, w)
 		return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, box)
 	}
 
 	if m.activeModal != nil {
+		if wa, ok := m.activeModal.(interface{ SetWidth(int) }); ok {
+			wa.SetWidth(w)
+		}
 		return overlay(m.activeModal.Title(), m.activeModal.View())
 	}
 
 	if m.copilotPromptActive {
 		return overlay("Spawn Copilot",
-			fmt.Sprintf("> %s\n\nEnter confirm  •  Esc cancel", m.copilotPromptInput.View()))
+			fmt.Sprintf("> %s\n\nEnter confirm (prompt optional)  •  Esc cancel", m.copilotPromptInput.View()))
 	}
 
 	if m.claudePromptActive {
 		return overlay("Spawn Claude Code",
-			fmt.Sprintf("> %s\n\nEnter confirm  •  Esc cancel", m.claudePromptInput.View()))
+			fmt.Sprintf("> %s\n\nEnter confirm (prompt optional)  •  Esc cancel", m.claudePromptInput.View()))
 	}
 
 	if m.Error != "" {
@@ -644,7 +641,11 @@ func (m *Model) switchWorktreeCmd(path string) tea.Cmd {
 // mode with the given prompt pre-loaded in the specified worktree directory.
 // It is extracted as a top-level function to keep it unit-testable.
 func buildCopilotCmd(worktreePath, prompt string) *exec.Cmd {
-	cmd := exec.Command("gh", "copilot", "-i", prompt)
+	args := []string{"copilot", "-i"}
+	if prompt != "" {
+		args = append(args, prompt)
+	}
+	cmd := exec.Command("gh", args...)
 	cmd.Dir = worktreePath
 	return cmd
 }
@@ -695,7 +696,12 @@ func resolveAiderBinary(cfg *domain.Config) (string, error) {
 // given prompt in the specified worktree directory.
 // It is extracted as a top-level function to keep it unit-testable.
 func buildClaudeCmd(worktreePath, prompt, binaryPath string) *exec.Cmd {
-	cmd := exec.Command(binaryPath, prompt)
+	var cmd *exec.Cmd
+	if prompt != "" {
+		cmd = exec.Command(binaryPath, prompt)
+	} else {
+		cmd = exec.Command(binaryPath)
+	}
 	cmd.Dir = worktreePath
 	return cmd
 }
