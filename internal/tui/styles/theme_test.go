@@ -125,8 +125,14 @@ func TestTheme_RenderTable_HeadersAndRowsPresent(t *testing.T) {
 }
 
 func TestThemesList_HasThreeEntries(t *testing.T) {
-	assert.Len(t, Themes, 3)
+	assert.Len(t, Themes, 9)
 	assert.Equal(t, "digital-noir", Themes[0])
 	assert.Equal(t, "matrix", Themes[1])
 	assert.Equal(t, "light", Themes[2])
+	assert.Equal(t, "everforest", Themes[3])
+	assert.Equal(t, "tokyonight", Themes[4])
+	assert.Equal(t, "catppuccin", Themes[5])
+	assert.Equal(t, "kanagawa", Themes[6])
+	assert.Equal(t, "rose-pine", Themes[7])
+	assert.Equal(t, "onedark", Themes[8])
 }

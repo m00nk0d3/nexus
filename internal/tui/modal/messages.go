@@ -1,11 +1,19 @@
 package modal
 
-import tea "github.com/charmbracelet/bubbletea"
+import (
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/m00nk0d3/nexus/internal/domain"
+)
 
 // Modal extends tea.Model with a Title for themed overlay rendering.
 type Modal interface {
 	tea.Model
 	Title() string
+}
+
+// SettingsSavedMsg is dispatched after the settings screen saves a config change.
+type SettingsSavedMsg struct {
+	Config *domain.Config
 }
 
 // WorktreeCreateConfirmedMsg is sent when the user confirms creating a new worktree.

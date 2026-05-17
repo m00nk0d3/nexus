@@ -512,55 +512,17 @@ func TestModelView_ShowsErrorMessage(t *testing.T) {
 	assert.Contains(t, view, "GIT WORKTREE ORCHESTRATOR")
 }
 
-func TestModel_T_KeyCyclesTheme(t *testing.T) {
-	tests := []struct {
-		name         string
-		initialIdx   int
-		pressCount   int
-		wantThemeIdx int
-	}{
-		{
-			name:         "first press increments from digital-noir to matrix",
-			initialIdx:   0,
-			pressCount:   1,
-			wantThemeIdx: 1,
-		},
-		{
-			name:         "second press increments from matrix to light",
-			initialIdx:   1,
-			pressCount:   1,
-			wantThemeIdx: 2,
-		},
-		{
-			name:         "wraps from light back to digital-noir",
-			initialIdx:   2,
-			pressCount:   1,
-			wantThemeIdx: 0,
-		},
-		{
-			name:         "three presses cycles through all themes and returns to start",
-			initialIdx:   0,
-			pressCount:   3,
-			wantThemeIdx: 0,
-		},
-	}
+func TestModel_T_KeyOpensSettings(t *testing.T) {
+	model := NewModel()
+	require.NotNil(t, model)
+	require.Nil(t, model.activeModal, "no modal should be open initially")
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			model := NewModel()
-			require.NotNil(t, model)
-			model.themeIdx = tt.initialIdx
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'t'}})
+	m, ok := updated.(*Model)
+	require.True(t, ok)
 
-			for i := 0; i < tt.pressCount; i++ {
-				updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'t'}})
-				var ok bool
-				model, ok = updated.(*Model)
-				require.True(t, ok)
-			}
-
-			assert.Equal(t, tt.wantThemeIdx, model.themeIdx)
-		})
-	}
+	require.NotNil(t, m.activeModal, "T key should open the settings modal")
+	assert.Equal(t, "SETTINGS", m.activeModal.Title())
 }
 
 // TestModel_Init_ReturnsSyncCmd verifies that Init() returns a non-nil Cmd,

@@ -196,6 +196,21 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case modal.ModalCancelledMsg:
 			m.activeModal = nil
 			return m, nil
+		case modal.SettingsSavedMsg:
+			m.Config = msg.Config
+			// Update themeIdx to match the saved theme.
+			for i, name := range styles.Themes {
+				if name == msg.Config.Appearance.Theme {
+					m.themeIdx = i
+					break
+				}
+			}
+			// Stay in settings — pass the message on to the modal.
+			updated, cmd := m.activeModal.Update(msg)
+			if next, ok := updated.(modal.Modal); ok {
+				m.activeModal = next
+			}
+			return m, cmd
 		default:
 			updated, cmd := m.activeModal.Update(msg)
 			if next, ok := updated.(modal.Modal); ok {
@@ -342,7 +357,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.moveUp()
 				return m, nil
 			case "t":
-				m.themeIdx = (m.themeIdx + 1) % len(styles.Themes)
+				m.activeModal = modal.NewSettingsModal(m.Config, data.DefaultConfigPath())
 			case "w", "W":
 				m.view = viewWorktrees
 				m.ctxScrollOffset = 0
