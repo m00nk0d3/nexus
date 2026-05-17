@@ -11,6 +11,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/m00nk0d3/nexus/internal/data"
 	"github.com/m00nk0d3/nexus/internal/domain"
 	internalexec "github.com/m00nk0d3/nexus/internal/exec"
@@ -398,14 +399,23 @@ func (m *Model) View() string {
 		baseView = renderFull(m.Worktrees, m.selectedIdx, m.RepoPath, m.themeIdx, m.view, m.width, m.height, m.syncing, m.lastSynced, m.syncErr, m.issues, m.selectedIssueIdx, m.prs, m.selectedPRIdx, m.focused, m.ctxScrollOffset)
 	}
 
-	// When the Copilot inline prompt is active, overlay it on top of the normal view.
+	// When the Copilot inline prompt is active, center it over the base view.
+	// Prepending it would make the total view taller than the terminal, causing
+	// Bubbletea to scroll the prompt into the scrollback buffer (invisible to user).
 	if m.copilotPromptActive {
 		theme := styles.NewTheme(styles.Themes[m.themeIdx])
 		prompt := theme.RenderBox(
 			"Spawn Copilot",
 			fmt.Sprintf("> %s\n\nEnter confirm  •  Esc cancel", m.copilotPromptInput.View()),
 		)
-		return fmt.Sprintf("%s\n\n%s", prompt, baseView)
+		w, h := m.width, m.height
+		if w <= 0 {
+			w = defaultTermWidth
+		}
+		if h <= 0 {
+			h = 24
+		}
+		return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, prompt)
 	}
 
 	// When the Claude inline prompt is active, overlay it on top of the normal view.
