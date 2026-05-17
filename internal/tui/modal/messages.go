@@ -32,3 +32,11 @@ type ModalCancelledMsg struct{}
 type AiderLaunchMsg struct {
 	Files []string
 }
+
+// SpawnAgentMsg is sent when the user confirms spawning an AI agent from the launcher.
+type SpawnAgentMsg struct {
+	AgentName    string   // "claude", "copilot", or "aider"
+	WorktreePath string   // Path to the worktree directory
+	Prompt       string   // Prompt text (empty for Aider which uses file picker)
+	Files        []string // File list (for Aider; nil for Claude/Copilot)
+}

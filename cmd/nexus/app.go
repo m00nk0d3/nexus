@@ -172,6 +172,17 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, m.spawnAiderCmd(selected.Path, msg.Files)
 			}
 			return m, nil
+		case modal.SpawnAgentMsg:
+			m.activeModal = nil
+			switch msg.AgentName {
+			case "copilot":
+				return m, m.spawnCopilotCmd(msg.WorktreePath, msg.Prompt)
+			case "claude":
+				return m, m.spawnClaudeCmd(msg.WorktreePath, msg.Prompt)
+			case "aider":
+				return m, m.fetchAiderFilesCmd(msg.WorktreePath)
+			}
+			return m, nil
 		case modal.ModalCancelledMsg:
 			m.activeModal = nil
 			return m, nil
@@ -288,6 +299,17 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.moveUp()
 		case tea.KeyDown:
 			m.moveDown()
+		case tea.KeySpace:
+			if m.view != viewWorktrees {
+				m.Error = "Agent launcher is only available in the Worktrees view — press w to switch"
+				return m, nil
+			}
+			if selected, ok := m.selectedWorktree(); ok {
+				m.activeModal = modal.NewAgentLauncherModal(m.Config, selected.Path)
+			} else {
+				m.Error = "No worktree selected — select one first"
+			}
+			return m, nil
 		case tea.KeyRunes:
 			switch msg.String() {
 			case "j":
