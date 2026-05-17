@@ -58,7 +58,7 @@ In short: if you work on multiple features simultaneously and use AI coding tool
 
 ### Download a pre-built binary (recommended)
 
-Grab the latest release from the [GitHub Releases page](https://github.com/m00nk0d3/nexus/releases):
+Grab the latest release from the [GitHub Releases page](https://github.com/m00nk0d3/nexus/releases).
 
 | Platform | Archive |
 |---|---|
@@ -68,31 +68,61 @@ Grab the latest release from the [GitHub Releases page](https://github.com/m00nk
 | macOS (Apple Silicon) | `nexus_<version>_darwin_arm64.tar.gz` |
 | Windows (amd64) | `nexus_<version>_windows_amd64.zip` |
 
-Extract and move the `nexus` binary (or `nexus.exe` on Windows) somewhere on your `PATH`.
+> **Pre-releases** (alpha / beta / RC) are also published on the Releases page and clearly marked. Use them to try upcoming features early.
+
+#### Linux / macOS
 
 ```bash
-# Example — Linux / macOS
 tar -xzf nexus_<version>_linux_amd64.tar.gz
 sudo mv nexus /usr/local/bin/
 ```
 
-> **Pre-releases** (alpha / beta / RC) are also published on the Releases page and are clearly marked. Use them to try upcoming features early.
+#### Windows (PowerShell)
+
+```powershell
+Expand-Archive nexus_<version>_windows_amd64.zip -DestinationPath "$env:USERPROFILE\nexus"
+# Add to PATH for the current user (run once):
+[System.Environment]::SetEnvironmentVariable(
+  "PATH",
+  "$env:USERPROFILE\nexus;$([System.Environment]::GetEnvironmentVariable('PATH','User'))",
+  "User"
+)
+```
+
+Restart your terminal after updating the PATH.
 
 ### Using go install
+
+Works on all platforms — requires Go 1.25+.
 
 ```bash
 go install github.com/m00nk0d3/nexus/cmd/nexus@latest
 ```
 
+The binary is placed in `$GOPATH/bin` (Linux/macOS) or `%GOPATH%\bin` (Windows), which should already be on your `PATH` if Go is set up correctly.
+
 ### Build from source
+
+#### Linux / macOS
 
 ```bash
 git clone https://github.com/m00nk0d3/nexus
 cd nexus
 make build
+sudo mv nexus /usr/local/bin/
 ```
 
-Move the resulting `nexus` binary (or `nexus.exe` on Windows) somewhere on your `PATH`.
+#### Windows (PowerShell)
+
+```powershell
+git clone https://github.com/m00nk0d3/nexus
+cd nexus
+go build -o nexus.exe ./cmd/nexus
+# Move nexus.exe to a folder that's on your PATH, e.g.:
+Move-Item nexus.exe "$env:USERPROFILE\bin\nexus.exe"
+```
+
+> `make` targets are available via Git Bash or WSL on Windows.
 
 ---
 
