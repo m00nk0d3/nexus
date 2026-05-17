@@ -679,3 +679,22 @@ func formatLabels(labels []string) string {
 	return strings.Join(strs, "")
 }
 
+// renderErrorModal renders a floating error notification box anchored to the
+// bottom-right corner of the terminal viewport.
+func renderErrorModal(msg string, termWidth, termHeight int) string {
+	if termWidth <= 0 {
+		termWidth = defaultTermWidth
+	}
+	if termHeight <= 0 {
+		termHeight = 24
+	}
+
+	content := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("#FF0000")).
+		Padding(0, 1).
+		MaxWidth(60).
+		Render("✗ " + msg + "\n\nPress any key to dismiss  •  Auto-dismisses in 5s")
+
+	return lipgloss.Place(termWidth, termHeight, lipgloss.Right, lipgloss.Bottom, content)
+}
