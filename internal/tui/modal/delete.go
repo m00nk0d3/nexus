@@ -39,6 +39,9 @@ func (m *DeleteModal) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// Title returns the modal title for themed overlay rendering.
+func (m *DeleteModal) Title() string { return "Delete Worktree" }
+
 // View renders the delete confirmation dialog.
 func (m *DeleteModal) View() string {
 	name := filepath.Base(m.worktree.Path)

@@ -167,6 +167,9 @@ func (m *CreateModal) WorktreePath() string {
 	return filepath.Join(filepath.Dir(m.repoPath), "worktrees", slug)
 }
 
+// Title returns the modal title for themed overlay rendering.
+func (m *CreateModal) Title() string { return "New Worktree" }
+
 // View renders the current step of the modal.
 func (m *CreateModal) View() string {
 	switch m.step {

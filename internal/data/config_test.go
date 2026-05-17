@@ -94,6 +94,7 @@ func TestLoadConfig(t *testing.T) {
 				t.Helper()
 				assert.Equal(t, "matrix", cfg.Appearance.Theme)
 				assert.Equal(t, true, cfg.AIAgents.CopilotEnabled, "CopilotEnabled must default to true when not specified in config")
+				assert.Equal(t, true, cfg.AIAgents.ClaudeEnabled, "ClaudeEnabled must default to true when not specified in config")
 			},
 		},
 		{

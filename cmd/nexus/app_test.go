@@ -460,8 +460,11 @@ func TestModelView_ShowsErrorMessage(t *testing.T) {
 	model.Error = "Failed to switch worktree: boom"
 
 	view := model.View()
-	assert.Contains(t, view, "Error: Failed to switch worktree: boom")
-	assert.Contains(t, view, "GIT WORKTREE ORCHESTRATOR")
+	// Error is rendered as a centered overlay box, not prepended to the base view.
+	assert.Contains(t, view, "Failed to switch worktree: boom")
+	assert.Contains(t, view, "Press any key to dismiss")
+	// Base view is replaced by the overlay — the TUI chrome should not be visible.
+	assert.NotContains(t, view, "GIT WORKTREE ORCHESTRATOR")
 }
 
 func TestModel_T_KeyCyclesTheme(t *testing.T) {
@@ -1222,13 +1225,13 @@ func TestModel_C_Key_TriggersCopilotPrompt(t *testing.T) {
 		wantPromptActive bool
 	}{
 		{
-			name:             "c key with disabled config does nothing",
+			name:             "c key with disabled config shows error",
 			copilotEnabled:   false,
 			hasWorktree:      true,
 			wantPromptActive: false,
 		},
 		{
-			name:             "c key with no worktree does nothing",
+			name:             "c key with no worktree shows error",
 			copilotEnabled:   true,
 			hasWorktree:      false,
 			wantPromptActive: false,
@@ -1252,6 +1255,7 @@ func TestModel_C_Key_TriggersCopilotPrompt(t *testing.T) {
 
 			assert.False(t, updatedModel.copilotPromptActive,
 				"copilotPromptActive should be false")
+			assert.NotEmpty(t, updatedModel.Error, "should show an error message to the user")
 		})
 	}
 
@@ -1277,8 +1281,8 @@ func TestModel_C_Key_TriggersCopilotPrompt(t *testing.T) {
 		assert.NotNil(t, cmd, "textinput.Init() should return a non-nil cmd")
 	})
 
-	// Verify that 'c' in a non-worktree view does nothing even when enabled.
-	t.Run("c key in issues view does nothing even when enabled", func(t *testing.T) {
+	// Verify that 'c' in a non-worktree view shows error even when enabled.
+	t.Run("c key in issues view shows error even when enabled", func(t *testing.T) {
 		model := NewModel()
 		model.Config.AIAgents.CopilotEnabled = true
 		model.view = viewIssues
@@ -1292,6 +1296,7 @@ func TestModel_C_Key_TriggersCopilotPrompt(t *testing.T) {
 
 		assert.False(t, updatedModel.copilotPromptActive,
 			"copilotPromptActive should stay false when not in worktrees view")
+		assert.NotEmpty(t, updatedModel.Error, "should show an error message when not in worktrees view")
 	})
 }
 
@@ -1525,7 +1530,7 @@ func TestResolveClaudeBinary_DefaultsToClaudeBinary(t *testing.T) {
 
 // TestModel_A_Key_TriggersClaude verifies [a] key activates the Claude prompt
 // when ClaudeEnabled=true and a worktree is selected (if binary exists),
-// and is a no-op when disabled or no worktree exists.
+// and shows an error message when conditions are not met.
 func TestModel_A_Key_TriggersClaude(t *testing.T) {
 	tests := []struct {
 		name             string
@@ -1534,13 +1539,13 @@ func TestModel_A_Key_TriggersClaude(t *testing.T) {
 		wantPromptActive bool
 	}{
 		{
-			name:             "a key with disabled config does nothing",
+			name:             "a key with disabled config shows error",
 			claudeEnabled:    false,
 			hasWorktree:      true,
 			wantPromptActive: false,
 		},
 		{
-			name:             "a key with no worktree does nothing",
+			name:             "a key with no worktree shows error",
 			claudeEnabled:    true,
 			hasWorktree:      false,
 			wantPromptActive: false,
@@ -1564,6 +1569,7 @@ func TestModel_A_Key_TriggersClaude(t *testing.T) {
 
 			assert.False(t, updatedModel.claudePromptActive,
 				"claudePromptActive should be false")
+			assert.NotEmpty(t, updatedModel.Error, "should show an error message to the user")
 		})
 	}
 
@@ -1589,7 +1595,7 @@ func TestModel_A_Key_TriggersClaude(t *testing.T) {
 		assert.NotNil(t, cmd, "textinput.Focus() should return a non-nil cmd")
 	})
 
-	t.Run("a key in issues view does nothing even when enabled", func(t *testing.T) {
+	t.Run("a key in issues view shows error even when enabled", func(t *testing.T) {
 		model := NewModel()
 		model.Config.AIAgents.ClaudeEnabled = true
 		model.view = viewIssues
@@ -1603,6 +1609,7 @@ func TestModel_A_Key_TriggersClaude(t *testing.T) {
 
 		assert.False(t, updatedModel.claudePromptActive,
 			"claudePromptActive should stay false when not in worktrees view")
+		assert.NotEmpty(t, updatedModel.Error, "should show an error message when not in worktrees view")
 	})
 }
 

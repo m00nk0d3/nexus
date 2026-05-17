@@ -84,7 +84,7 @@ type Model struct {
 	RepoPath         string               // Path to the repository root
 	Config           *domain.Config       // Loaded application configuration
 	selectedIdx      int                  // Currently selected worktree index
-	activeModal      tea.Model            // Currently open modal (if any)
+	activeModal      modal.Modal          // Currently open modal (if any)
 	Error            string               // Error message to display (if any)
 	themeIdx         int                  // Index into styles.Themes for the active theme
 	view             activeView           // Currently active main panel view
@@ -159,7 +159,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		default:
 			updated, cmd := m.activeModal.Update(msg)
-			m.activeModal = updated
+			if next, ok := updated.(modal.Modal); ok {
+				m.activeModal = next
+			}
 			return m, cmd
 		}
 	}
@@ -225,6 +227,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
+		// Dismiss any visible error overlay on the next keypress.
+		m.Error = ""
 		switch msg.Type {
 		case tea.KeyTab:
 			m.focused = (m.focused + 1) % panelCount
@@ -276,35 +280,51 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 				}
 			case "c", "C":
-				if m.view == viewWorktrees && m.Config.AIAgents.CopilotEnabled {
-					if _, ok := m.selectedWorktree(); ok {
-						if _, err := exec.LookPath("gh"); err != nil {
-							m.Error = "gh not found on $PATH — install GitHub CLI to use Copilot"
-							return m, nil
-						}
-						ti := textinput.New()
-						ti.Placeholder = "Enter Copilot prompt…"
-						focusCmd := ti.Focus()
-						m.copilotPromptInput = ti
-						m.copilotPromptActive = true
-						return m, focusCmd
-					}
+				if m.view != viewWorktrees {
+					m.Error = "Copilot (c) is only available in the Worktrees view — press w to switch"
+					return m, nil
 				}
+				if !m.Config.AIAgents.CopilotEnabled {
+					m.Error = "Copilot is disabled — set copilot_enabled = true in ~/.nexus/config.toml"
+					return m, nil
+				}
+				if _, ok := m.selectedWorktree(); !ok {
+					m.Error = "No worktree selected — select one first"
+					return m, nil
+				}
+				if _, err := exec.LookPath("gh"); err != nil {
+					m.Error = "gh not found on $PATH — install GitHub CLI to use Copilot"
+					return m, nil
+				}
+				ti := textinput.New()
+				ti.Placeholder = "Enter Copilot prompt…"
+				focusCmd := ti.Focus()
+				m.copilotPromptInput = ti
+				m.copilotPromptActive = true
+				return m, focusCmd
 			case "a", "A":
-				if m.view == viewWorktrees && m.Config.AIAgents.ClaudeEnabled {
-					if _, ok := m.selectedWorktree(); ok {
-						if _, err := resolveClaudeBinary(m.Config); err != nil {
-							m.Error = fmt.Sprintf("claude binary not found: %v", err)
-							return m, nil
-						}
-						ti := textinput.New()
-						ti.Placeholder = "Enter Claude prompt…"
-						focusCmd := ti.Focus()
-						m.claudePromptInput = ti
-						m.claudePromptActive = true
-						return m, focusCmd
-					}
+				if m.view != viewWorktrees {
+					m.Error = "Claude (a) is only available in the Worktrees view — press w to switch"
+					return m, nil
 				}
+				if !m.Config.AIAgents.ClaudeEnabled {
+					m.Error = "Claude is disabled — set claude_enabled = true in ~/.nexus/config.toml"
+					return m, nil
+				}
+				if _, ok := m.selectedWorktree(); !ok {
+					m.Error = "No worktree selected — select one first"
+					return m, nil
+				}
+				if _, err := resolveClaudeBinary(m.Config); err != nil {
+					m.Error = fmt.Sprintf("claude binary not found: %v", err)
+					return m, nil
+				}
+				ti := textinput.New()
+				ti.Placeholder = "Enter Claude prompt…"
+				focusCmd := ti.Focus()
+				m.claudePromptInput = ti
+				m.claudePromptActive = true
+				return m, focusCmd
 			}
 		}
 
@@ -392,56 +412,42 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // View returns a string representation of the model's current state.
 func (m *Model) View() string {
-	var baseView string
+	baseView := renderFull(m.Worktrees, m.selectedIdx, m.RepoPath, m.themeIdx, m.view, m.width, m.height, m.syncing, m.lastSynced, m.syncErr, m.issues, m.selectedIssueIdx, m.prs, m.selectedPRIdx, m.focused, m.ctxScrollOffset)
+
+	w, h := m.width, m.height
+	if w <= 0 {
+		w = defaultTermWidth
+	}
+	if h <= 0 {
+		h = 24
+	}
+
+	// Overlay helpers — center a themed RenderBox over the full base view.
+	overlay := func(title, content string) string {
+		theme := styles.NewTheme(styles.Themes[m.themeIdx])
+		box := theme.RenderBox(title, content)
+		return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, box)
+	}
+
 	if m.activeModal != nil {
-		baseView = m.activeModal.View()
-	} else {
-		baseView = renderFull(m.Worktrees, m.selectedIdx, m.RepoPath, m.themeIdx, m.view, m.width, m.height, m.syncing, m.lastSynced, m.syncErr, m.issues, m.selectedIssueIdx, m.prs, m.selectedPRIdx, m.focused, m.ctxScrollOffset)
+		return overlay(m.activeModal.Title(), m.activeModal.View())
 	}
 
-	// When the Copilot inline prompt is active, center it over the base view.
-	// Prepending it would make the total view taller than the terminal, causing
-	// Bubbletea to scroll the prompt into the scrollback buffer (invisible to user).
 	if m.copilotPromptActive {
-		theme := styles.NewTheme(styles.Themes[m.themeIdx])
-		prompt := theme.RenderBox(
-			"Spawn Copilot",
-			fmt.Sprintf("> %s\n\nEnter confirm  •  Esc cancel", m.copilotPromptInput.View()),
-		)
-		w, h := m.width, m.height
-		if w <= 0 {
-			w = defaultTermWidth
-		}
-		if h <= 0 {
-			h = 24
-		}
-		return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, prompt)
+		return overlay("Spawn Copilot",
+			fmt.Sprintf("> %s\n\nEnter confirm  •  Esc cancel", m.copilotPromptInput.View()))
 	}
 
-	// When the Claude inline prompt is active, center it over the base view.
-	// Prepending it would make the total view taller than the terminal, causing
-	// Bubbletea to scroll the prompt into the scrollback buffer (invisible to user).
 	if m.claudePromptActive {
-		theme := styles.NewTheme(styles.Themes[m.themeIdx])
-		prompt := theme.RenderBox(
-			"Spawn Claude Code",
-			fmt.Sprintf("> %s\n\nEnter confirm  •  Esc cancel", m.claudePromptInput.View()),
-		)
-		w, h := m.width, m.height
-		if w <= 0 {
-			w = defaultTermWidth
-		}
-		if h <= 0 {
-			h = 24
-		}
-		return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, prompt)
+		return overlay("Spawn Claude Code",
+			fmt.Sprintf("> %s\n\nEnter confirm  •  Esc cancel", m.claudePromptInput.View()))
 	}
 
-	if m.Error == "" {
-		return baseView
+	if m.Error != "" {
+		return overlay("⚠ Error", m.Error+"\n\nPress any key to dismiss")
 	}
 
-	return fmt.Sprintf("Error: %s\n\n%s", m.Error, baseView)
+	return baseView
 }
 
 // openInBrowserCmd returns a Cmd that opens the selected issue or PR in the browser
