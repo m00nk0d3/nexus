@@ -1858,25 +1858,35 @@ func TestBuildAiderCmd_PassesSelectedFiles(t *testing.T) {
 		name         string
 		worktreePath string
 		files        []string
+		binaryPath   string
 		wantArgs     []string
 	}{
 		{
 			name:         "single file",
 			worktreePath: "/tmp/my-wt",
 			files:        []string{"main.go"},
+			binaryPath:   "aider",
 			wantArgs:     []string{"aider", "main.go"},
 		},
 		{
 			name:         "multiple files",
 			worktreePath: "/tmp/my-wt",
 			files:        []string{"main.go", "go.mod", "README.md"},
+			binaryPath:   "aider",
 			wantArgs:     []string{"aider", "main.go", "go.mod", "README.md"},
+		},
+		{
+			name:         "custom binary path",
+			worktreePath: "/tmp/my-wt",
+			files:        []string{"main.go"},
+			binaryPath:   "/usr/local/bin/aider",
+			wantArgs:     []string{"/usr/local/bin/aider", "main.go"},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cmd := buildAiderCmd(tt.worktreePath, tt.files)
+			cmd := buildAiderCmd(tt.worktreePath, tt.files, tt.binaryPath)
 			require.NotNil(t, cmd)
 			assert.Equal(t, tt.wantArgs, cmd.Args)
 			assert.Equal(t, tt.worktreePath, cmd.Dir)
@@ -1884,16 +1894,41 @@ func TestBuildAiderCmd_PassesSelectedFiles(t *testing.T) {
 	}
 }
 
-// TestSpawnAiderCmd_PassesSelectedFiles verifies that spawnAiderCmd returns a
-// non-nil Cmd and that the underlying exec.Cmd receives the correct files.
-func TestSpawnAiderCmd_PassesSelectedFiles(t *testing.T) {
+// TestSpawnAiderCmd_BinaryNotFound_ReturnsNilCmd verifies that spawnAiderCmd
+// returns nil and sets m.Error when the configured aider binary is not found.
+func TestSpawnAiderCmd_BinaryNotFound_ReturnsNilCmd(t *testing.T) {
 	model := NewModel()
-	require.NotNil(t, model)
+	model.Config.AIAgents.AiderBinary = "definitely-not-a-real-binary-xyz-12345"
 
-	files := []string{"cmd/nexus/app.go", "go.mod"}
-	cmd := model.spawnAiderCmd("/tmp/my-wt", files)
+	cmd := model.spawnAiderCmd("/tmp/my-wt", []string{"main.go"})
 
-	assert.NotNil(t, cmd, "spawnAiderCmd must return a non-nil tea.Cmd")
+	assert.Nil(t, cmd, "spawnAiderCmd must return nil when binary is not found")
+	assert.Contains(t, model.Error, "aider not found")
+}
+
+// TestResolveAiderBinary_DefaultsToAider verifies that an empty AiderBinary
+// config field falls back to "aider" (which may or may not be on PATH).
+func TestResolveAiderBinary_DefaultsToAider(t *testing.T) {
+	cfg := domain.DefaultConfig()
+	cfg.AIAgents.AiderBinary = ""
+
+	path, err := resolveAiderBinary(cfg)
+	if err != nil {
+		assert.Contains(t, err.Error(), "aider",
+			"error for missing default binary should mention 'aider'")
+	} else {
+		assert.NotEmpty(t, path, "resolved path should be non-empty when aider is on PATH")
+	}
+}
+
+// TestResolveAiderBinary_CustomBinary_NotFound verifies that resolveAiderBinary
+// returns an error when a custom binary is not found on PATH.
+func TestResolveAiderBinary_CustomBinary_NotFound(t *testing.T) {
+	cfg := domain.DefaultConfig()
+	cfg.AIAgents.AiderBinary = "definitely-not-a-real-binary-xyz-12345"
+
+	_, err := resolveAiderBinary(cfg)
+	require.Error(t, err, "resolveAiderBinary should return error for missing binary")
 }
 
 // TestModel_F_Key_AiderDisabled_SetsError verifies that pressing 'f' when
@@ -1983,4 +2018,24 @@ func TestModel_AiderFilesFetchedMsg_ErrorSetsError(t *testing.T) {
 	assert.Nil(t, cmd)
 	assert.Nil(t, m.activeModal)
 	assert.Contains(t, m.Error, "Failed to list files")
+}
+
+// TestModel_F_Key_AiderNotOnPath_SetsError verifies that pressing 'f' when
+// the aider binary is not resolvable sets a user-visible error on the model.
+func TestModel_F_Key_AiderNotOnPath_SetsError(t *testing.T) {
+	model := NewModel()
+	model.Config.AIAgents.AiderEnabled = true
+	model.Config.AIAgents.AiderBinary = "definitely-not-a-real-binary-xyz-12345"
+	model.view = viewWorktrees
+	model.Worktrees = []domain.Worktree{
+		{Path: "/tmp/wt", Branch: "main", CommitSHA: "abc"},
+	}
+
+	updated, cmd := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("f")})
+	updatedModel, ok := updated.(*Model)
+	require.True(t, ok)
+
+	assert.Nil(t, cmd)
+	assert.Contains(t, updatedModel.Error, "aider not found",
+		"error should mention that the aider binary is missing")
 }

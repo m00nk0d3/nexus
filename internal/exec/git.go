@@ -109,8 +109,9 @@ func (g *GitCommand) RemoveWorktree(path string, force bool) error {
 	return g.runNoOutput("remove worktree", args...)
 }
 
-// ListModifiedFiles returns the list of modified, untracked, and staged files
+// ListModifiedFiles returns the list of modified (unstaged) and untracked files
 // in the worktree at path using git ls-files --modified --others --exclude-standard.
+// Note: staged-only files (added with git add but not yet modified) are not included.
 func (g *GitCommand) ListModifiedFiles(path string) ([]string, error) {
 	output, err := g.runner(path, "ls-files", "--modified", "--others", "--exclude-standard")
 	if err != nil {

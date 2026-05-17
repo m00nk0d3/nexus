@@ -375,7 +375,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.Error = "No worktree selected — select one first"
 					return m, nil
 				}
-				if _, err := exec.LookPath("aider"); err != nil {
+				if _, err := resolveAiderBinary(m.Config); err != nil {
 					m.Error = "aider not found on $PATH — install Aider to use this feature"
 					return m, nil
 				}
@@ -394,6 +394,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.activeModal = modal.NewAiderFilePicker(msg.files)
+		return m, nil
 
 	case worktreeOpDoneMsg:
 		// Refresh the worktree list after an add/remove operation.
@@ -644,6 +645,17 @@ func resolveClaudeBinary(cfg *domain.Config) (string, error) {
 	return exec.LookPath(bin)
 }
 
+// resolveAiderBinary returns the resolved path for the Aider binary.
+// It reads cfg.AIAgents.AiderBinary, defaulting to "aider", then
+// uses exec.LookPath to verify the binary is on the PATH.
+func resolveAiderBinary(cfg *domain.Config) (string, error) {
+	bin := cfg.AIAgents.AiderBinary
+	if bin == "" {
+		bin = "aider"
+	}
+	return exec.LookPath(bin)
+}
+
 // buildClaudeCmd constructs the exec.Cmd for running the Claude CLI with the
 // given prompt in the specified worktree directory.
 // It is extracted as a top-level function to keep it unit-testable.
@@ -690,8 +702,8 @@ func (m *Model) fetchAiderFilesCmd(worktreePath string) tea.Cmd {
 
 // buildAiderCmd constructs the exec.Cmd for running aider with the given files
 // in the specified worktree directory. Extracted as a top-level function for testability.
-func buildAiderCmd(worktreePath string, files []string) *exec.Cmd {
-	cmd := exec.Command("aider", files...)
+func buildAiderCmd(worktreePath string, files []string, binaryPath string) *exec.Cmd {
+	cmd := exec.Command(binaryPath, files...)
 	cmd.Dir = worktreePath
 	return cmd
 }
@@ -699,8 +711,13 @@ func buildAiderCmd(worktreePath string, files []string) *exec.Cmd {
 // spawnAiderCmd returns a Cmd that runs aider with the selected files in the
 // worktree directory and dispatches agentDoneMsg when the process exits.
 func (m *Model) spawnAiderCmd(worktreePath string, files []string) tea.Cmd {
+	binaryPath, err := resolveAiderBinary(m.Config)
+	if err != nil {
+		m.Error = fmt.Sprintf("aider not found: %v", err)
+		return nil
+	}
 	startedAt := time.Now()
-	cmd := buildAiderCmd(worktreePath, files)
+	cmd := buildAiderCmd(worktreePath, files, binaryPath)
 	return tea.ExecProcess(cmd, func(err error) tea.Msg {
 		exitCode := 0
 		var exitErr *exec.ExitError
