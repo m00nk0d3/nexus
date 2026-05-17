@@ -2151,3 +2151,68 @@ func TestModel_SpawnAgentMsg_Aider_ClearsModalAndFetchesFiles(t *testing.T) {
 	assert.NotNil(t, cmd, "aider should return a fetchAiderFilesCmd")
 	assert.Empty(t, next.Error, "no error should be set when aider is triggered")
 }
+
+// ---------------------------------------------------------------------------
+// Phase 3: Suspend/Resume tests
+// ---------------------------------------------------------------------------
+
+// TestAgentDoneMsg_NonZeroExit_ShowsErrorInStatusBar verifies that when an agent
+// exits with a non-zero code, the model's Error field is set to the expected
+// warning message so it is displayed in the status bar.
+func TestAgentDoneMsg_NonZeroExit_ShowsErrorInStatusBar(t *testing.T) {
+	tests := []struct {
+		name      string
+		exitCode  int
+		wantError string
+	}{
+		{
+			name:      "exit code 1 shows warning",
+			exitCode:  1,
+			wantError: "⚠ Agent exited with code 1",
+		},
+		{
+			name:      "exit code 127 shows warning",
+			exitCode:  127,
+			wantError: "⚠ Agent exited with code 127",
+		},
+		{
+			name:      "exit code 0 does not set error",
+			exitCode:  0,
+			wantError: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			model := NewModel()
+
+			updated, cmd := model.Update(agentDoneMsg{
+				agentName: "copilot",
+				prompt:    "test",
+				exitCode:  tt.exitCode,
+			})
+			m, ok := updated.(*Model)
+			require.True(t, ok)
+
+			assert.Equal(t, tt.wantError, m.Error,
+				"Error field should match expected warning for exit code %d", tt.exitCode)
+			// agentDoneMsg must always trigger a worktree refresh.
+			assert.NotNil(t, cmd, "agentDoneMsg must return a refreshWorktreesCmd")
+		})
+	}
+}
+
+// TestAgentDoneMsg_ZeroExit_TriggersRefresh verifies that even a successful
+// agent exit (code 0) still returns a refreshWorktreesCmd so the worktree list
+// is reloaded after the subprocess exits.
+func TestAgentDoneMsg_ZeroExit_TriggersRefresh(t *testing.T) {
+	model := NewModel()
+
+	_, cmd := model.Update(agentDoneMsg{
+		agentName: "claude",
+		prompt:    "refactor",
+		exitCode:  0,
+	})
+
+	assert.NotNil(t, cmd, "zero-exit agentDoneMsg must still return a refreshWorktreesCmd")
+}
