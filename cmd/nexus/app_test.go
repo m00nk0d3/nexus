@@ -1309,14 +1309,14 @@ func TestBuildCopilotCmd_BuildsCorrectCommand(t *testing.T) {
 			name:         "simple prompt",
 			worktreePath: "/tmp/my-worktree",
 			prompt:       "fix the null pointer",
-			wantArgs:     []string{"gh", "copilot", "suggest", "fix the null pointer"},
+			wantArgs:     []string{"gh", "copilot", "-i", "fix the null pointer"},
 			wantDir:      "/tmp/my-worktree",
 		},
 		{
 			name:         "multi-word prompt",
 			worktreePath: "/repo/feat-branch",
 			prompt:       "add unit tests for auth handler",
-			wantArgs:     []string{"gh", "copilot", "suggest", "add unit tests for auth handler"},
+			wantArgs:     []string{"gh", "copilot", "-i", "add unit tests for auth handler"},
 			wantDir:      "/repo/feat-branch",
 		},
 	}

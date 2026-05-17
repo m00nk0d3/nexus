@@ -440,11 +440,11 @@ func (m *Model) switchWorktreeCmd(path string) tea.Cmd {
 	})
 }
 
-// buildCopilotCmd constructs the exec.Cmd for running gh copilot suggest
-// with the given prompt in the specified worktree directory.
+// buildCopilotCmd constructs the exec.Cmd for running gh copilot in interactive
+// mode with the given prompt pre-loaded in the specified worktree directory.
 // It is extracted as a top-level function to keep it unit-testable.
 func buildCopilotCmd(worktreePath, prompt string) *exec.Cmd {
-	cmd := exec.Command("gh", "copilot", "suggest", prompt)
+	cmd := exec.Command("gh", "copilot", "-i", prompt)
 	cmd.Dir = worktreePath
 	return cmd
 }
