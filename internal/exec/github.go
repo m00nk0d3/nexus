@@ -27,7 +27,7 @@ func NewIssueCommandWithRunner(repoPath string, runner commandRunner) *IssueComm
 
 // ListOpenIssues returns all open GitHub issues via `gh issue list`.
 func (c *IssueCommand) ListOpenIssues() ([]domain.Issue, error) {
-	output, err := c.runner(c.repoPath, "issue", "list", "--json", "number,title,body,labels", "--state", "open", "--limit", "100")
+	output, err := c.runner(c.repoPath, "issue", "list", "--json", "number,title,body,labels,assignees", "--state", "open", "--limit", "100")
 	if err != nil {
 		return nil, fmt.Errorf("list open issues: %w", err)
 	}
@@ -45,12 +45,18 @@ type ghLabel struct {
 	Name string `json:"name"`
 }
 
-// ghIssue is the JSON shape returned by `gh issue list --json number,title,body,labels`.
+// ghAssignee is the JSON shape for an assignee returned by gh.
+type ghAssignee struct {
+	Login string `json:"login"`
+}
+
+// ghIssue is the JSON shape returned by `gh issue list --json number,title,body,labels,assignees`.
 type ghIssue struct {
-	Number int       `json:"number"`
-	Title  string    `json:"title"`
-	Body   string    `json:"body"`
-	Labels []ghLabel `json:"labels"`
+	Number    int          `json:"number"`
+	Title     string       `json:"title"`
+	Body      string       `json:"body"`
+	Labels    []ghLabel    `json:"labels"`
+	Assignees []ghAssignee `json:"assignees"`
 }
 
 func parseIssueList(raw string) ([]domain.Issue, error) {
@@ -65,11 +71,19 @@ func parseIssueList(raw string) ([]domain.Issue, error) {
 		for i, l := range g.Labels {
 			labels[i] = l.Name
 		}
+		var assignees []string
+		if len(g.Assignees) > 0 {
+			assignees = make([]string, len(g.Assignees))
+			for i, a := range g.Assignees {
+				assignees[i] = a.Login
+			}
+		}
 		issues = append(issues, domain.Issue{
-			Number: g.Number,
-			Title:  g.Title,
-			Body:   g.Body,
-			Labels: labels,
+			Number:    g.Number,
+			Title:     g.Title,
+			Body:      g.Body,
+			Labels:    labels,
+			Assignees: assignees,
 		})
 	}
 

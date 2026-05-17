@@ -319,7 +319,7 @@ func TestRenderIssueList_ContainsHeaders(t *testing.T) {
 	theme := styles.NewTheme("digital-noir")
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := renderIssueList(nil, 0, theme, 80, 20, false)
+			result := renderIssueList(nil, 0, nil, theme, 80, 20, false)
 			for _, want := range tt.wantIn {
 				assert.Contains(t, result, want)
 			}
@@ -365,10 +365,93 @@ func TestRenderIssueList_ContainsIssueRows(t *testing.T) {
 	theme := styles.NewTheme("digital-noir")
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := renderIssueList(issues, tt.selectedIdx, theme, 80, 20, false)
+			result := renderIssueList(issues, tt.selectedIdx, nil, theme, 80, 20, false)
 			for _, want := range tt.wantIn {
 				assert.Contains(t, result, want)
 			}
+		})
+	}
+}
+
+// TestRenderIssueList_InProgressStatus verifies that an issue shows "In Progress"
+// when a matching worktree branch exists, and "Open" otherwise.
+func TestRenderIssueList_InProgressStatus(t *testing.T) {
+	issues := []domain.Issue{
+		{Number: 7, Title: "Fix the bug", Labels: []string{"bug"}},
+		{Number: 8, Title: "Add feature", Labels: []string{"enhancement"}},
+	}
+	worktrees := []domain.Worktree{
+		{Path: "/repo/worktrees/feat-issue-7", Branch: "feat/issue-7-fix-the-bug"},
+	}
+
+	theme := styles.NewTheme("digital-noir")
+
+	t.Run("issue with matching worktree shows In Progress", func(t *testing.T) {
+		result := renderIssueList(issues, 0, worktrees, theme, 80, 20, false)
+		assert.Contains(t, result, "In Progress")
+	})
+
+	t.Run("issue without matching worktree shows Open", func(t *testing.T) {
+		result := renderIssueList(issues, 0, worktrees, theme, 80, 20, false)
+		assert.Contains(t, result, "Open")
+	})
+
+	t.Run("no worktrees means all issues show Open", func(t *testing.T) {
+		result := renderIssueList(issues, 0, nil, theme, 80, 20, false)
+		assert.NotContains(t, result, "In Progress")
+	})
+}
+
+// TestRenderIssueList_ShowsAssignees verifies that assignees are shown in the list.
+func TestRenderIssueList_ShowsAssignees(t *testing.T) {
+	theme := styles.NewTheme("digital-noir")
+
+	t.Run("shows ASSIGNED column header", func(t *testing.T) {
+		result := renderIssueList(nil, 0, nil, theme, 80, 20, false)
+		assert.Contains(t, result, "ASSIGNED")
+	})
+
+	t.Run("shows @username for assigned issue", func(t *testing.T) {
+		issues := []domain.Issue{
+			{Number: 1, Title: "My issue", Assignees: []string{"alice"}},
+		}
+		result := renderIssueList(issues, 0, nil, theme, 80, 20, false)
+		assert.Contains(t, result, "@alice")
+	})
+
+	t.Run("shows dash when no assignees", func(t *testing.T) {
+		issues := []domain.Issue{
+			{Number: 1, Title: "My issue", Assignees: nil},
+		}
+		result := renderIssueList(issues, 0, nil, theme, 80, 20, false)
+		assert.Contains(t, result, "-")
+	})
+}
+
+// TestIssueHasWorktree verifies the branch-matching logic for issue worktrees.
+func TestIssueHasWorktree(t *testing.T) {
+	worktrees := []domain.Worktree{
+		{Branch: "feat/issue-7-fix-the-bug"},
+		{Branch: "feat/issue-42-some-feature"},
+	}
+
+	tests := []struct {
+		name        string
+		issueNumber int
+		worktrees   []domain.Worktree
+		want        bool
+	}{
+		{"matches issue-7", 7, worktrees, true},
+		{"matches issue-42", 42, worktrees, true},
+		{"no match for issue-1", 1, worktrees, false},
+		{"no match for issue-4 (partial, issue-42 exists)", 4, worktrees, false},
+		{"nil worktrees returns false", 7, nil, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := issueHasWorktree(tt.issueNumber, tt.worktrees)
+			assert.Equal(t, tt.want, got)
 		})
 	}
 }

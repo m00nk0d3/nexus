@@ -102,7 +102,7 @@ func TestListOpenIssues_PassesCorrectArgs(t *testing.T) {
 	_, err := cmd.ListOpenIssues()
 
 	require.NoError(t, err)
-	assert.Equal(t, []string{"issue", "list", "--json", "number,title,body,labels", "--state", "open", "--limit", "100"}, capturedArgs)
+	assert.Equal(t, []string{"issue", "list", "--json", "number,title,body,labels,assignees", "--state", "open", "--limit", "100"}, capturedArgs)
 }
 
 func TestListOpenIssues_MapsDomainsCorrectly(t *testing.T) {
@@ -129,6 +129,43 @@ func TestListOpenIssues_MapsDomainsCorrectly(t *testing.T) {
 
 			require.NoError(t, err)
 			assert.Equal(t, tt.expected, issues)
+		})
+	}
+}
+
+func TestListOpenIssues_MapsAssigneesCorrectly(t *testing.T) {
+	tests := []struct {
+		name              string
+		raw               string
+		wantAssignees     []string
+	}{
+		{
+			name:          "single assignee is mapped",
+			raw:           `[{"number":1,"title":"T","labels":[],"assignees":[{"login":"alice"}]}]`,
+			wantAssignees: []string{"alice"},
+		},
+		{
+			name:          "multiple assignees are mapped",
+			raw:           `[{"number":1,"title":"T","labels":[],"assignees":[{"login":"alice"},{"login":"bob"}]}]`,
+			wantAssignees: []string{"alice", "bob"},
+		},
+		{
+			name:          "no assignees returns nil",
+			raw:           `[{"number":1,"title":"T","labels":[],"assignees":[]}]`,
+			wantAssignees: nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			runner := func(_ string, _ ...string) (string, error) { return tt.raw, nil }
+			cmd := NewIssueCommandWithRunner("/repo", runner)
+
+			issues, err := cmd.ListOpenIssues()
+
+			require.NoError(t, err)
+			require.Len(t, issues, 1)
+			assert.Equal(t, tt.wantAssignees, issues[0].Assignees)
 		})
 	}
 }

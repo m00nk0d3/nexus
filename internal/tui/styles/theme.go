@@ -134,6 +134,8 @@ func (t Theme) StatusStyle(status string) lipgloss.Style {
 	switch strings.ToLower(status) {
 	case "checked", "checked out": // reserved for future git worktree "checkedout" state
 		return lipgloss.NewStyle().Background(bg).Foreground(lipgloss.Color(t.accent))
+	case "in progress":
+		return lipgloss.NewStyle().Background(bg).Foreground(lipgloss.Color(t.accent))
 	case "idle", "clean":
 		return lipgloss.NewStyle().Background(bg).Foreground(lipgloss.Color(t.success))
 	case "created", "dirty":

@@ -78,7 +78,7 @@ func renderFull(worktrees []domain.Worktree, selectedIdx int, repoPath string, t
 	var list string
 	switch view {
 	case viewIssues:
-		list = renderIssueList(issues, selectedIssueIdx, theme, listInner, panelHeight, focused == panelList)
+		list = renderIssueList(issues, selectedIssueIdx, worktrees, theme, listInner, panelHeight, focused == panelList)
 	case viewPRs:
 		list = renderPRList(prs, selectedPRIdx, theme, listInner, panelHeight, focused == panelList)
 	default:
@@ -211,7 +211,14 @@ func renderContextPanel(view activeView, worktrees []domain.Worktree, worktreeId
 			if body == "" {
 				body = "(no description)"
 			}
-			content = fmt.Sprintf("Context: Issue #%d\n%s\n\nStatus: ● Open\nLabels: %s\n\n%s\n\n[g] Open in GitHub", iss.Number, title, labels, body)
+			statusText := "Open"
+			statusDot := "●"
+			if issueHasWorktree(iss.Number, worktrees) {
+				statusText = "In Progress"
+				statusDot = "◉"
+			}
+			assigneesStr := formatAssignees(iss.Assignees)
+			content = fmt.Sprintf("Context: Issue #%d\n%s\n\nStatus: %s %s\nAssigned: %s\nLabels: %s\n\n%s\n\n[g] Open in GitHub", iss.Number, title, statusDot, statusText, assigneesStr, labels, body)
 		}
 	case viewPRs:
 		if len(prs) == 0 || prIdx < 0 || prIdx >= len(prs) {
@@ -278,17 +285,17 @@ func renderContextPanel(view activeView, worktrees []domain.Worktree, worktreeId
 	return st.Render(content)
 }
 
-func renderIssueList(issues []domain.Issue, selectedIdx int, theme styles.Theme, listInner, panelHeight int, focused bool) string {
+func renderIssueList(issues []domain.Issue, selectedIdx int, worktrees []domain.Worktree, theme styles.Theme, listInner, panelHeight int, focused bool) string {
 	var content strings.Builder
 	headerStyle := theme.GetStyle("table-header")
-	titleWidth := listInner - 30
+	titleWidth := listInner - 46 // fixed: 2(cursor/sp) + 6(#) + 1 + 11(status) + 1 + 12(assigned) + 1 + 8(labels min) + 4 = 46
 	if titleWidth < 10 {
 		titleWidth = 10
 	}
-	headerRow := fmt.Sprintf("  %-6s %-*s %-8s %s", "#", titleWidth, "TITLE", "STATUS", "LABELS")
+	headerRow := fmt.Sprintf("  %-6s %-*s %-11s %-12s %s", "#", titleWidth, "TITLE", "STATUS", "ASSIGNED", "LABELS")
 	content.WriteString(headerStyle.Render(headerRow))
 	content.WriteString("\n")
-	labelsWidth := listInner - titleWidth - 19 // remaining after "  <6#> <titleWidth> <8status> " prefix
+	labelsWidth := listInner - titleWidth - 35 // remaining after fixed overhead
 	if labelsWidth < 8 {
 		labelsWidth = 8
 	}
@@ -308,13 +315,19 @@ func renderIssueList(issues []domain.Issue, selectedIdx int, theme styles.Theme,
 	for i, issue := range visible {
 		labels := truncateStr(strings.Join(issue.Labels, " "), labelsWidth)
 		title := truncateStr(issue.Title, titleWidth)
-		// "Open" is hardcoded because gh issue list only returns open issues by default.
+		status := "Open"
+		if issueHasWorktree(issue.Number, worktrees) {
+			status = "In Progress"
+		}
+		assigned := truncateStr(formatAssignees(issue.Assignees), 12)
 		if i == selectedIdx {
-			row := fmt.Sprintf("%-6d %-*s %-8s %s", issue.Number, titleWidth, title, "Open", labels)
+			row := fmt.Sprintf("%-6d %-*s %-11s %-12s %s", issue.Number, titleWidth, title, status, assigned, labels)
 			content.WriteString(theme.GetStyle("selected-row").Width(listInner).Render("> " + row))
 		} else {
-			row := fmt.Sprintf("  %-6d %-*s %-8s %s", issue.Number, titleWidth, title, "Open", labels)
-			content.WriteString(row)
+			statusCol := theme.StatusStyle(strings.ToLower(status)).Width(11).Render(status)
+			assignedCol := fmt.Sprintf("%-12s", assigned)
+			prefix := fmt.Sprintf("  %-6d %-*s ", issue.Number, titleWidth, title)
+			content.WriteString(prefix + statusCol + " " + assignedCol + " " + labels)
 		}
 		content.WriteString("\n")
 	}
@@ -555,6 +568,32 @@ func prStateColor(state string) lipgloss.Color {
 	default:
 		return lipgloss.Color("#4A5568")
 	}
+}
+
+// formatAssignees formats a slice of assignee logins into "@user1,@user2" format.
+// Returns "-" when there are no assignees.
+func formatAssignees(assignees []string) string {
+	if len(assignees) == 0 {
+		return "-"
+	}
+	parts := make([]string, len(assignees))
+	for i, a := range assignees {
+		parts[i] = "@" + a
+	}
+	return strings.Join(parts, ",")
+}
+
+// issueHasWorktree returns true if any worktree's branch contains "issue-<number>-"
+// or ends with "issue-<number>", indicating a worktree was created for this issue.
+func issueHasWorktree(issueNumber int, worktrees []domain.Worktree) bool {
+	withDash := fmt.Sprintf("issue-%d-", issueNumber)
+	atEnd := fmt.Sprintf("issue-%d", issueNumber)
+	for _, wt := range worktrees {
+		if strings.Contains(wt.Branch, withDash) || strings.HasSuffix(wt.Branch, atEnd) {
+			return true
+		}
+	}
+	return false
 }
 
 // formatLabels formats a slice of label strings into "[label1][label2]" format.
