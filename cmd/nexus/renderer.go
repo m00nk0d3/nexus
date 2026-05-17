@@ -139,17 +139,24 @@ func renderWorktreePanel(worktrees []domain.Worktree, selectedIdx int, theme sty
 	content.WriteString(headerStyle.Render(headerRow))
 	content.WriteString("\n")
 
-	// Bug 1: cap rendered rows so panel content never exceeds panelHeight.
+	// Cap rendered rows so panel content never exceeds panelHeight.
 	// The header row occupies 1 line, so at most panelHeight-1 data rows fit.
+	// Virtual scrolling: slide the visible window so selectedIdx is always shown.
+	startIdx := 0
 	visible := worktrees
 	if panelHeight > 0 {
 		maxItems := panelHeight - 1
 		if maxItems < 0 {
 			maxItems = 0
 		}
-		if maxItems < len(visible) {
-			visible = visible[:maxItems]
+		if maxItems > 0 && selectedIdx >= maxItems {
+			startIdx = selectedIdx - maxItems + 1
 		}
+		end := startIdx + maxItems
+		if end > len(worktrees) {
+			end = len(worktrees)
+		}
+		visible = worktrees[startIdx:end]
 	}
 
 	for i, wt := range visible {
@@ -162,7 +169,7 @@ func renderWorktreePanel(worktrees []domain.Worktree, selectedIdx int, theme sty
 			ghID = fmt.Sprintf("%d", wt.LinkedPR.Number)
 			prState = wt.LinkedPR.State
 		}
-		if i == selectedIdx {
+		if i+startIdx == selectedIdx {
 			ghIDFormatted := fmt.Sprintf("%-6s", ghID)
 			if prState != "" {
 				ghIDFormatted = lipgloss.NewStyle().Foreground(prStateColor(prState)).Render(ghIDFormatted)
@@ -191,7 +198,7 @@ func renderWorktreePanel(worktrees []domain.Worktree, selectedIdx int, theme sty
 		st = theme.MutedBorder(st)
 	}
 	if panelHeight > 0 {
-		st = st.Height(panelHeight)
+		st = st.Height(panelHeight).MaxHeight(panelHeight + 2)
 	}
 	return st.Render(strings.TrimRight(content.String(), "\n"))
 }
@@ -208,7 +215,7 @@ func renderContextPanel(view activeView, worktrees []domain.Worktree, worktreeId
 			title := wrapText(iss.Title, ctxInner)
 			// "Labels: " prefix = 8 chars; wrap to remaining width to avoid re-wrap.
 			labels := wrapText(labelsStr, ctxInner-8)
-			body := wrapText(iss.Body, ctxInner)
+			body := wrapText(sanitizeBody(strings.ReplaceAll(iss.Body, "\r", "")), ctxInner)
 			if body == "" {
 				body = "(no description)"
 			}
@@ -301,16 +308,23 @@ func renderIssueList(issues []domain.Issue, selectedIdx int, worktrees []domain.
 		labelsWidth = 8
 	}
 
-	// Bug 1: cap rendered rows so panel content never exceeds panelHeight.
+	// Cap rendered rows and virtual-scroll so selectedIdx is always in the window.
+	// The header row occupies 1 line, so at most panelHeight-1 data rows fit.
+	issueStartIdx := 0
 	visible := issues
 	if panelHeight > 0 {
 		maxItems := panelHeight - 1
 		if maxItems < 0 {
 			maxItems = 0
 		}
-		if maxItems < len(visible) {
-			visible = visible[:maxItems]
+		if maxItems > 0 && selectedIdx >= maxItems {
+			issueStartIdx = selectedIdx - maxItems + 1
 		}
+		end := issueStartIdx + maxItems
+		if end > len(issues) {
+			end = len(issues)
+		}
+		visible = issues[issueStartIdx:end]
 	}
 
 	for i, issue := range visible {
@@ -321,7 +335,7 @@ func renderIssueList(issues []domain.Issue, selectedIdx int, worktrees []domain.
 			status = "In Progress"
 		}
 		assigned := truncateStr(formatAssignees(issue.Assignees), 12)
-		if i == selectedIdx {
+		if i+issueStartIdx == selectedIdx {
 			row := fmt.Sprintf("%-6d %-*s %-11s %-12s %s", issue.Number, titleWidth, title, status, assigned, labels)
 			content.WriteString(theme.GetStyle("selected-row").Width(listInner).Render("> " + row))
 		} else {
@@ -340,7 +354,7 @@ func renderIssueList(issues []domain.Issue, selectedIdx int, worktrees []domain.
 		st = theme.MutedBorder(st)
 	}
 	if panelHeight > 0 {
-		st = st.Height(panelHeight)
+		st = st.Height(panelHeight).MaxHeight(panelHeight + 2)
 	}
 	return st.Render(strings.TrimRight(content.String(), "\n"))
 }
@@ -370,16 +384,23 @@ func renderPRList(prs []domain.PullRequest, selectedIdx int, theme styles.Theme,
 	content.WriteString(headerStyle.Render(headerRow))
 	content.WriteString("\n")
 
-	// Bug 1: cap rendered rows so panel content never exceeds panelHeight.
+	// Cap rendered rows and virtual-scroll so selectedIdx is always in the window.
+	// The header row occupies 1 line, so at most panelHeight-1 data rows fit.
+	prStartIdx := 0
 	visible := prs
 	if panelHeight > 0 {
 		maxItems := panelHeight - 1
 		if maxItems < 0 {
 			maxItems = 0
 		}
-		if maxItems < len(visible) {
-			visible = visible[:maxItems]
+		if maxItems > 0 && selectedIdx >= maxItems {
+			prStartIdx = selectedIdx - maxItems + 1
 		}
+		end := prStartIdx + maxItems
+		if end > len(prs) {
+			end = len(prs)
+		}
+		visible = prs[prStartIdx:end]
 	}
 
 	for i, pr := range visible {
@@ -389,7 +410,7 @@ func renderPRList(prs []domain.PullRequest, selectedIdx int, theme styles.Theme,
 		if pr.IsDraft {
 			state = "DRAFT"
 		}
-		if i == selectedIdx {
+		if i+prStartIdx == selectedIdx {
 			row := fmt.Sprintf("%-6d %-*s %-*s %s", pr.Number, titleWidth, title, branchWidth, branch, state)
 			content.WriteString(theme.GetStyle("selected-row").Width(listInner).Render("> " + row))
 		} else {
@@ -406,7 +427,7 @@ func renderPRList(prs []domain.PullRequest, selectedIdx int, theme styles.Theme,
 		st = theme.MutedBorder(st)
 	}
 	if panelHeight > 0 {
-		st = st.Height(panelHeight)
+		st = st.Height(panelHeight).MaxHeight(panelHeight + 2)
 	}
 	return st.Render(strings.TrimRight(content.String(), "\n"))
 }

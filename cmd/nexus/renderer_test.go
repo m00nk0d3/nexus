@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -1590,4 +1591,153 @@ func TestPRContextPanel_SanitizesControlChars(t *testing.T) {
 	// Control characters must not reach the rendered output.
 	assert.NotContains(t, view, "\x08", "backspace control char must be stripped")
 	assert.NotContains(t, view, "\x0c", "form-feed control char must be stripped")
+}
+
+// ---------------------------------------------------------------------------
+// Virtual scrolling tests
+// ---------------------------------------------------------------------------
+
+// TestRenderIssueList_VirtualScroll_SelectedAlwaysVisible verifies that when
+// selectedIdx exceeds the visible window (panelHeight-1 items), the list
+// scrolls so the selected item is always rendered and highlighted.
+func TestRenderIssueList_VirtualScroll_SelectedAlwaysVisible(t *testing.T) {
+	const termHeight = 10 // small terminal: panelHeight=5, maxItems=4
+	const termWidth = 120
+
+	// Build 12 issues; select the last one (idx=11) which is well beyond window.
+	issues := make([]domain.Issue, 12)
+	for i := range issues {
+		issues[i] = domain.Issue{Number: i + 1, Title: fmt.Sprintf("Issue %d title", i+1)}
+	}
+
+	model := NewModel()
+	require.NotNil(t, model)
+	model.view = viewIssues
+	model.issues = issues
+	model.selectedIssueIdx = 11 // last item
+	model.width = termWidth
+	model.height = termHeight
+
+	rendered := model.View()
+
+	// The selected issue (#12) must be visible and highlighted with "> ".
+	assert.Contains(t, rendered, "> ", "selected row marker must be present")
+	assert.Contains(t, rendered, "12", "selected issue number must be visible")
+
+	// Height must not overflow terminal.
+	lineCount := strings.Count(rendered, "\n") + 1
+	assert.LessOrEqual(t, lineCount, termHeight,
+		"rendered output (%d lines) must not exceed terminal height (%d)", lineCount, termHeight)
+}
+
+// TestRenderPRList_VirtualScroll_SelectedAlwaysVisible verifies the same for the PR list.
+func TestRenderPRList_VirtualScroll_SelectedAlwaysVisible(t *testing.T) {
+	const termHeight = 10
+	const termWidth = 120
+
+	prs := make([]domain.PullRequest, 12)
+	for i := range prs {
+		prs[i] = domain.PullRequest{
+			Number: i + 1,
+			Title:  fmt.Sprintf("PR %d title", i+1),
+			Branch: fmt.Sprintf("feat/pr-%d", i+1),
+			State:  "OPEN",
+		}
+	}
+
+	model := NewModel()
+	require.NotNil(t, model)
+	model.view = viewPRs
+	model.prs = prs
+	model.selectedPRIdx = 11
+	model.width = termWidth
+	model.height = termHeight
+
+	rendered := model.View()
+
+	assert.Contains(t, rendered, "> ")
+	assert.Contains(t, rendered, "12")
+
+	lineCount := strings.Count(rendered, "\n") + 1
+	assert.LessOrEqual(t, lineCount, termHeight,
+		"rendered output (%d lines) must not exceed terminal height (%d)", lineCount, termHeight)
+}
+
+// TestRenderWorktreePanel_VirtualScroll_SelectedAlwaysVisible verifies worktree virtual scroll.
+func TestRenderWorktreePanel_VirtualScroll_SelectedAlwaysVisible(t *testing.T) {
+	const termHeight = 10
+	const termWidth = 120
+
+	worktrees := make([]domain.Worktree, 12)
+	for i := range worktrees {
+		worktrees[i] = domain.Worktree{
+			Path:   fmt.Sprintf("/repo/branch-%d", i+1),
+			Branch: fmt.Sprintf("branch-%d", i+1),
+		}
+	}
+
+	model := NewModel()
+	require.NotNil(t, model)
+	model.view = viewWorktrees
+	model.Worktrees = worktrees
+	model.selectedIdx = 11
+	model.width = termWidth
+	model.height = termHeight
+
+	rendered := model.View()
+
+	assert.Contains(t, rendered, "> ")
+	assert.Contains(t, rendered, "branch-12")
+
+	lineCount := strings.Count(rendered, "\n") + 1
+	assert.LessOrEqual(t, lineCount, termHeight,
+		"rendered output (%d lines) must not exceed terminal height (%d)", lineCount, termHeight)
+}
+
+// TestRenderFull_IssueWithLongBody_FitsTerminalHeight verifies that selecting an
+// issue with a very long body (like a GitHub issue with multiple sections) does
+// not push the header off-screen.
+func TestRenderFull_IssueWithLongBody_FitsTerminalHeight(t *testing.T) {
+	const termHeight = 24
+	const termWidth = 120
+
+	longBody := strings.Repeat("## Section\nLine of body text that keeps going and going. ", 50)
+
+	issues := []domain.Issue{
+		{Number: 1, Title: "Short issue", Body: "tiny"},
+		{Number: 2, Title: "Long issue", Body: longBody},
+	}
+
+	model := NewModel()
+	require.NotNil(t, model)
+	model.view = viewIssues
+	model.issues = issues
+	model.selectedIssueIdx = 1 // select the long-body issue
+	model.width = termWidth
+	model.height = termHeight
+
+	rendered := model.View()
+
+	lineCount := strings.Count(rendered, "\n") + 1
+	assert.LessOrEqual(t, lineCount, termHeight,
+		"rendered output (%d lines) must not exceed terminal height (%d) when issue body is very long",
+		lineCount, termHeight)
+}
+
+// TestRenderFull_IssueBody_ControlCharsStripped verifies that control characters
+// in issue bodies are stripped (same as PR bodies).
+func TestRenderFull_IssueBody_ControlCharsStripped(t *testing.T) {
+	body := "Normal text\x08backspace\x0cformfeed end"
+
+	model := NewModel()
+	require.NotNil(t, model)
+	model.view = viewIssues
+	model.issues = []domain.Issue{{Number: 1, Title: "Test", Body: body}}
+	model.selectedIssueIdx = 0
+
+	view := model.View()
+
+	assert.NotContains(t, view, "\x08", "backspace must be stripped from issue body")
+	assert.NotContains(t, view, "\x0c", "form-feed must be stripped from issue body")
+	assert.Contains(t, view, "Normal text")
 }
