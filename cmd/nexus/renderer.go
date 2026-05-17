@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/mattn/go-runewidth"
 	"github.com/m00nk0d3/nexus/internal/domain"
 	"github.com/m00nk0d3/nexus/internal/tui/styles"
 )
@@ -230,7 +231,7 @@ func renderContextPanel(view activeView, worktrees []domain.Worktree, worktreeId
 				state = "DRAFT"
 			}
 			labelsStr := formatLabels(pr.Labels)
-			body := wrapText(pr.Body, ctxInner)
+			body := wrapText(strings.ReplaceAll(pr.Body, "\r", ""), ctxInner)
 			if body == "" {
 				body = "(no description)"
 			}
@@ -253,13 +254,13 @@ func renderContextPanel(view activeView, worktrees []domain.Worktree, worktreeId
 				labels := wrapText(labelsStr, ctxInner-8)
 				titleTrunc := truncateStr(pr.Title, ctxInner-10) // "GH Title: " prefix = 10 chars
 				statusDot := lipgloss.NewStyle().Foreground(prStateColor(pr.State)).Render("●")
-				body := wrapText(pr.Body, ctxInner)
+				body := wrapText(strings.ReplaceAll(pr.Body, "\r", ""), ctxInner)
 				if body == "" {
 					body = "(no description)"
 				}
 				content = fmt.Sprintf(
 					"Context: PR #%d\n%s\n\nGH Title: %s\nAuthor: @%s\nStatus: %s %s\nLabels: %s\n\n%s\n\nAGENT COMMANDS:\n[a] Spawn Claude Code\n[c] Spawn Copilot\n[s] Open Shell in WT",
-					pr.Number, titleTrunc, pr.Title, pr.Author, statusDot, pr.State, labels, body,
+					pr.Number, titleTrunc, titleTrunc, pr.Author, statusDot, pr.State, labels, body,
 				)
 			} else {
 				const pathLabel = "Path: "
@@ -493,43 +494,60 @@ func wrapText(s string, width int) string {
 	return out.String()
 }
 
-// wrapLine wraps a single newline-free string at word boundaries.
+// wrapLine wraps a single newline-free string at word boundaries using display
+// cell width (so multi-cell characters like emoji and CJK are measured correctly).
 // Falls back to a hard break when a word exceeds width.
 func wrapLine(s string, width int) string {
-	runes := []rune(s)
-	if len(runes) <= width {
+	if runewidth.StringWidth(s) <= width {
 		return s
 	}
 	var out strings.Builder
-	for len(runes) > width {
-		// Clean break: the character right after width is a space, so the
-		// first `width` runes form a complete word boundary.
-		if runes[width] == ' ' {
-			out.WriteString(string(runes[:width]))
-			out.WriteByte('\n')
-			runes = runes[width+1:]
-			continue
-		}
-		// Find the last space within the first `width` runes.
-		breakAt := -1
-		for i := width - 1; i >= 0; i-- {
-			if runes[i] == ' ' {
-				breakAt = i
+	runes := []rune(s)
+	for {
+		// Find the rune index where display cells would exceed width.
+		cells, cut := 0, len(runes)
+		for i, r := range runes {
+			rw := runewidth.RuneWidth(r)
+			if cells+rw > width {
+				cut = i
 				break
 			}
+			cells += rw
 		}
-		if breakAt <= 0 {
-			// No space found — hard break at width.
-			out.WriteString(string(runes[:width]))
+		if cut == len(runes) {
+			// All remaining runes fit.
+			out.WriteString(string(runes))
+			break
+		}
+		// Prefer a word-boundary break.
+		if runes[cut] == ' ' {
+			out.WriteString(string(runes[:cut]))
 			out.WriteByte('\n')
-			runes = runes[width:]
+			runes = runes[cut+1:]
 		} else {
-			out.WriteString(string(runes[:breakAt]))
-			out.WriteByte('\n')
-			runes = runes[breakAt+1:]
+			breakAt := -1
+			for i := cut - 1; i >= 0; i-- {
+				if runes[i] == ' ' {
+					breakAt = i
+					break
+				}
+			}
+			if breakAt <= 0 {
+				// No space found — hard break at the cut point.
+				out.WriteString(string(runes[:cut]))
+				out.WriteByte('\n')
+				runes = runes[cut:]
+			} else {
+				out.WriteString(string(runes[:breakAt]))
+				out.WriteByte('\n')
+				runes = runes[breakAt+1:]
+			}
+		}
+		if runewidth.StringWidth(string(runes)) <= width {
+			out.WriteString(string(runes))
+			break
 		}
 	}
-	out.WriteString(string(runes))
 	return out.String()
 }
 
