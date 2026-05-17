@@ -56,7 +56,29 @@ In short: if you work on multiple features simultaneously and use AI coding tool
 
 ## Installation
 
-### Using go install (recommended)
+### Download a pre-built binary (recommended)
+
+Grab the latest release from the [GitHub Releases page](https://github.com/m00nk0d3/nexus/releases):
+
+| Platform | Archive |
+|---|---|
+| Linux (amd64) | `nexus_<version>_linux_amd64.tar.gz` |
+| Linux (arm64) | `nexus_<version>_linux_arm64.tar.gz` |
+| macOS (Intel) | `nexus_<version>_darwin_amd64.tar.gz` |
+| macOS (Apple Silicon) | `nexus_<version>_darwin_arm64.tar.gz` |
+| Windows (amd64) | `nexus_<version>_windows_amd64.zip` |
+
+Extract and move the `nexus` binary (or `nexus.exe` on Windows) somewhere on your `PATH`.
+
+```bash
+# Example — Linux / macOS
+tar -xzf nexus_<version>_linux_amd64.tar.gz
+sudo mv nexus /usr/local/bin/
+```
+
+> **Pre-releases** (alpha / beta / RC) are also published on the Releases page and are clearly marked. Use them to try upcoming features early.
+
+### Using go install
 
 ```bash
 go install github.com/m00nk0d3/nexus/cmd/nexus@latest
@@ -67,11 +89,10 @@ go install github.com/m00nk0d3/nexus/cmd/nexus@latest
 ```bash
 git clone https://github.com/m00nk0d3/nexus
 cd nexus
-go build -ldflags "-X github.com/m00nk0d3/nexus/internal/version.Version=v0.1.0" \
-    -o nexus ./cmd/nexus
+make build
 ```
 
-Move the resulting `nexus` binary somewhere on your `PATH`.
+Move the resulting `nexus` binary (or `nexus.exe` on Windows) somewhere on your `PATH`.
 
 ---
 
@@ -230,9 +251,12 @@ go version
 gh auth login
 
 # 4. Build the project
-go build ./...
+make build
 
-# 5. Run Nexus locally (from inside any Git repo)
+# 5. Run tests
+make test
+
+# 6. Run Nexus locally (from inside any Git repo)
 go run ./cmd/nexus
 ```
 
@@ -244,7 +268,7 @@ For a full developer reference including release procedures and configuration de
 2. **Branch naming** — use `feat/issue-<number>-<short-description>` (e.g. `feat/issue-42-worktree-lock-ui`).
 3. **Run tests** before pushing:
    ```bash
-   go test ./...
+   make test
    ```
 4. **Commit messages** follow [Conventional Commits](https://www.conventionalcommits.org/) and must include a body explaining *why* the change was made (see `.copilot/` for the project commit guidelines).
 5. **Open a PR** against `main` with a clear description: what changed, why, and how it was tested.
