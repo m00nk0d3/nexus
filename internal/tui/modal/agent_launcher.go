@@ -41,9 +41,20 @@ type AgentLauncherModal struct {
 func newAgentLauncherModal(options []agentOption, worktreePath string) *AgentLauncherModal {
 	ti := textinput.New()
 	ti.CharLimit = 200
+
+	// Start cursor on the first available agent so Enter works immediately.
+	startIdx := 0
+	for i, opt := range options {
+		if opt.available {
+			startIdx = i
+			break
+		}
+	}
+
 	return &AgentLauncherModal{
 		step:         stepAgentSelect,
 		options:      options,
+		selectedIdx:  startIdx,
 		worktreePath: worktreePath,
 		promptInput:  ti,
 	}
@@ -75,9 +86,9 @@ func buildAgentOptions(cfg *domain.Config) []agentOption {
 	}
 
 	return []agentOption{
-		{name: "Claude Code", key: "a", internal: "claude", available: claudeAvail},
-		{name: "Copilot CLI", key: "c", internal: "copilot", available: copilotAvail},
-		{name: "Aider", key: "?", internal: "aider", available: aiderAvail},
+		{name: "Claude Code", key: "a", internal: AgentNameClaude, available: claudeAvail},
+		{name: "Copilot CLI", key: "c", internal: AgentNameCopilot, available: copilotAvail},
+		{name: "Aider", key: "d", internal: AgentNameAider, available: aiderAvail},
 	}
 }
 
@@ -148,6 +159,13 @@ func (m *AgentLauncherModal) updateSelectStep(keyMsg tea.KeyMsg) (tea.Model, tea
 		if m.selectedIdx < len(m.options) {
 			return m.selectAgent(m.options[m.selectedIdx])
 		}
+	default:
+		// Jump-select by shortcut key (e.g. "a" for Claude, "c" for Copilot).
+		for _, opt := range m.options {
+			if opt.key == keyMsg.String() {
+				return m.selectAgent(opt)
+			}
+		}
 	}
 	return m, nil
 }
@@ -159,10 +177,10 @@ func (m *AgentLauncherModal) selectAgent(opt agentOption) (tea.Model, tea.Cmd) {
 	m.selectedAgent = opt
 
 	// Aider uses a file picker flow; emit immediately and let the app handle it.
-	if opt.internal == "aider" {
+	if opt.internal == AgentNameAider {
 		path := m.worktreePath
 		return m, func() tea.Msg {
-			return SpawnAgentMsg{AgentName: "aider", WorktreePath: path}
+			return SpawnAgentMsg{AgentName: AgentNameAider, WorktreePath: path}
 		}
 	}
 

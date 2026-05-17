@@ -175,11 +175,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case modal.SpawnAgentMsg:
 			m.activeModal = nil
 			switch msg.AgentName {
-			case "copilot":
+			case modal.AgentNameCopilot:
 				return m, m.spawnCopilotCmd(msg.WorktreePath, msg.Prompt)
-			case "claude":
+			case modal.AgentNameClaude:
 				return m, m.spawnClaudeCmd(msg.WorktreePath, msg.Prompt)
-			case "aider":
+		case modal.AgentNameAider:
 				return m, m.fetchAiderFilesCmd(msg.WorktreePath)
 			}
 			return m, nil

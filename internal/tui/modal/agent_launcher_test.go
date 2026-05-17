@@ -14,7 +14,7 @@ var testWorktreePath = "/home/user/worktrees/feat-issue-21-agent-launcher"
 var testAgentOptions = []agentOption{
 	{name: "Claude Code", key: "a", internal: "claude", available: true},
 	{name: "Copilot CLI", key: "c", internal: "copilot", available: true},
-	{name: "Aider", key: "?", internal: "aider", available: false},
+	{name: "Aider", key: "d", internal: "aider", available: false},
 }
 
 func newTestLauncher() *AgentLauncherModal {
@@ -219,7 +219,7 @@ func TestAgentLauncherModal_PromptEnter_TrimsWhitespace(t *testing.T) {
 
 func TestAgentLauncherModal_SelectAider_WhenAvailable_EmitsSpawnMsg(t *testing.T) {
 	opts := []agentOption{
-		{name: "Aider", key: "?", internal: "aider", available: true},
+		{name: "Aider", key: "d", internal: "aider", available: true},
 	}
 	m := newAgentLauncherModal(opts, testWorktreePath)
 
@@ -287,3 +287,89 @@ func TestBuildAgentOptions_OptionsHaveExpectedInternalNames(t *testing.T) {
 	assert.Equal(t, "copilot", opts[1].internal)
 	assert.Equal(t, "aider", opts[2].internal)
 }
+
+// --- Cursor auto-advance ---
+
+// TestNewAgentLauncherModal_CursorSkipsToFirstAvailable verifies that the constructor
+// places the cursor on the first available agent, not blindly at index 0.
+func TestNewAgentLauncherModal_CursorSkipsToFirstAvailable(t *testing.T) {
+	opts := []agentOption{
+		{name: "Claude Code", key: "a", internal: "claude", available: false},
+		{name: "Copilot CLI", key: "c", internal: "copilot", available: true},
+		{name: "Aider", key: "d", internal: "aider", available: false},
+	}
+	m := newAgentLauncherModal(opts, testWorktreePath)
+
+	assert.Equal(t, 1, m.selectedIdx, "cursor should skip unavailable Claude and land on Copilot")
+}
+
+// TestNewAgentLauncherModal_AllUnavailable_CursorRemainsAtZero verifies graceful
+// behaviour when no agent is available — cursor stays at 0 (no panic).
+func TestNewAgentLauncherModal_AllUnavailable_CursorRemainsAtZero(t *testing.T) {
+	opts := []agentOption{
+		{name: "Claude Code", key: "a", internal: "claude", available: false},
+		{name: "Copilot CLI", key: "c", internal: "copilot", available: false},
+		{name: "Aider", key: "d", internal: "aider", available: false},
+	}
+	m := newAgentLauncherModal(opts, testWorktreePath)
+
+	assert.Equal(t, 0, m.selectedIdx, "cursor stays at 0 when nothing is available")
+}
+
+// --- Shortcut keys (a / c / d) ---
+
+// TestAgentLauncherModal_ShortcutA_SelectsClaude verifies that pressing "a" in the
+// selection step immediately activates Claude (same as navigating to it and pressing Enter).
+func TestAgentLauncherModal_ShortcutA_SelectsClaude(t *testing.T) {
+	m := newTestLauncher()
+	m.selectedIdx = 1 // Start on Copilot to make the test non-trivial.
+
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("a")})
+	m = updated.(*AgentLauncherModal)
+
+	assert.Equal(t, stepAgentPrompt, m.step, "pressing 'a' must advance to the prompt step")
+	assert.NotNil(t, cmd, "Focus cmd must be returned")
+	assert.Equal(t, "claude", m.selectedAgent.internal)
+}
+
+// TestAgentLauncherModal_ShortcutC_SelectsCopilot verifies the "c" shortcut.
+func TestAgentLauncherModal_ShortcutC_SelectsCopilot(t *testing.T) {
+	m := newTestLauncher()
+
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("c")})
+	m = updated.(*AgentLauncherModal)
+
+	assert.Equal(t, stepAgentPrompt, m.step)
+	assert.NotNil(t, cmd)
+	assert.Equal(t, "copilot", m.selectedAgent.internal)
+}
+
+// TestAgentLauncherModal_ShortcutD_WhenUnavailable_IsNoOp verifies that pressing the
+// Aider shortcut when Aider is unavailable does nothing (matches Enter behaviour).
+func TestAgentLauncherModal_ShortcutD_WhenUnavailable_IsNoOp(t *testing.T) {
+	m := newTestLauncher() // testAgentOptions has Aider as unavailable.
+
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("d")})
+
+	assert.Nil(t, cmd, "shortcut for unavailable agent must not emit a command")
+	assert.Equal(t, stepAgentSelect, m.step, "step must not change for unavailable shortcut")
+}
+
+// TestAgentLauncherModal_ShortcutD_WhenAvailable_EmitsSpawnMsg verifies that pressing
+// the Aider shortcut when Aider is available skips the prompt and emits SpawnAgentMsg.
+func TestAgentLauncherModal_ShortcutD_WhenAvailable_EmitsSpawnMsg(t *testing.T) {
+	opts := []agentOption{
+		{name: "Claude Code", key: "a", internal: "claude", available: true},
+		{name: "Aider", key: "d", internal: "aider", available: true},
+	}
+	m := newAgentLauncherModal(opts, testWorktreePath)
+
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("d")})
+	require.NotNil(t, cmd)
+
+	msg := cmd()
+	spawnMsg, ok := msg.(SpawnAgentMsg)
+	require.True(t, ok)
+	assert.Equal(t, "aider", spawnMsg.AgentName)
+}
+
