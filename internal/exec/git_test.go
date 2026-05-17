@@ -653,6 +653,270 @@ func TestGitCommand_UnlockWorktree(t *testing.T) {
 	}
 }
 
+func TestGitCommand_GitStatus(t *testing.T) {
+	tests := []struct {
+		name      string
+		repoPath  string
+		path      string
+		runOutput string
+		runErr    error
+		wantArgs  []string
+		wantOut   string
+		expectErr string
+	}{
+		{
+			name:      "returns trimmed short status",
+			repoPath:  "/repo/main",
+			path:      "/repo/feature",
+			runOutput: " M internal/exec/git.go\n?? new_file.go\n",
+			wantArgs:  []string{"status", "--short"},
+			wantOut:   "M internal/exec/git.go\n?? new_file.go",
+		},
+		{
+			name:     "returns empty string for clean worktree",
+			repoPath: "/repo/main",
+			path:     "/repo/feature",
+			wantArgs: []string{"status", "--short"},
+			wantOut:  "",
+		},
+		{
+			name:      "returns runner error with context",
+			repoPath:  "/repo/main",
+			path:      "/repo/feature",
+			runErr:    errors.New("permission denied"),
+			wantArgs:  []string{"status", "--short"},
+			expectErr: "git status: permission denied",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var calledPath string
+			var calledArgs []string
+
+			runner := func(repoPath string, args ...string) (string, error) {
+				calledPath = repoPath
+				calledArgs = append([]string{}, args...)
+				return tt.runOutput, tt.runErr
+			}
+
+			cmd := NewGitCommandWithRunner(tt.repoPath, runner)
+			out, err := cmd.GitStatus(tt.path)
+
+			assert.Equal(t, tt.path, calledPath)
+			assert.Equal(t, tt.wantArgs, calledArgs)
+
+			if tt.expectErr != "" {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.expectErr)
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantOut, out)
+		})
+	}
+}
+
+func TestGitCommand_GitLog(t *testing.T) {
+	tests := []struct {
+		name      string
+		repoPath  string
+		path      string
+		n         int
+		runOutput string
+		runErr    error
+		wantArgs  []string
+		wantOut   string
+		expectErr string
+	}{
+		{
+			name:      "returns oneline log with n commits",
+			repoPath:  "/repo/main",
+			path:      "/repo/feature",
+			n:         10,
+			runOutput: "abc1234 feat: add context builder\ndef5678 fix: handle empty repo\n",
+			wantArgs:  []string{"log", "--oneline", "-n", "10"},
+			wantOut:   "abc1234 feat: add context builder\ndef5678 fix: handle empty repo",
+		},
+		{
+			name:     "passes correct n to git log",
+			repoPath: "/repo/main",
+			path:     "/repo/feature",
+			n:        5,
+			wantArgs: []string{"log", "--oneline", "-n", "5"},
+		},
+		{
+			name:      "returns runner error with context",
+			repoPath:  "/repo/main",
+			path:      "/repo/feature",
+			n:         10,
+			runErr:    errors.New("not a git repository"),
+			wantArgs:  []string{"log", "--oneline", "-n", "10"},
+			expectErr: "git log: not a git repository",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var calledPath string
+			var calledArgs []string
+
+			runner := func(repoPath string, args ...string) (string, error) {
+				calledPath = repoPath
+				calledArgs = append([]string{}, args...)
+				return tt.runOutput, tt.runErr
+			}
+
+			cmd := NewGitCommandWithRunner(tt.repoPath, runner)
+			out, err := cmd.GitLog(tt.path, tt.n)
+
+			assert.Equal(t, tt.path, calledPath)
+			assert.Equal(t, tt.wantArgs, calledArgs)
+
+			if tt.expectErr != "" {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.expectErr)
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantOut, out)
+		})
+	}
+}
+
+func TestGitCommand_GitDiffNameOnly(t *testing.T) {
+	tests := []struct {
+		name      string
+		repoPath  string
+		path      string
+		runOutput string
+		runErr    error
+		wantArgs  []string
+		wantFiles []string
+		expectErr string
+	}{
+		{
+			name:      "returns list of changed files",
+			repoPath:  "/repo/main",
+			path:      "/repo/feature",
+			runOutput: "internal/exec/git.go\ninternal/domain/context.go\n",
+			wantArgs:  []string{"diff", "--name-only", "HEAD"},
+			wantFiles: []string{"internal/exec/git.go", "internal/domain/context.go"},
+		},
+		{
+			name:      "returns empty slice when no files changed",
+			repoPath:  "/repo/main",
+			path:      "/repo/feature",
+			runOutput: "",
+			wantArgs:  []string{"diff", "--name-only", "HEAD"},
+			wantFiles: []string{},
+		},
+		{
+			name:      "returns runner error with context",
+			repoPath:  "/repo/main",
+			path:      "/repo/feature",
+			runErr:    errors.New("fatal: not a git repository"),
+			wantArgs:  []string{"diff", "--name-only", "HEAD"},
+			expectErr: "git diff name-only: fatal: not a git repository",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var calledPath string
+			var calledArgs []string
+
+			runner := func(repoPath string, args ...string) (string, error) {
+				calledPath = repoPath
+				calledArgs = append([]string{}, args...)
+				return tt.runOutput, tt.runErr
+			}
+
+			cmd := NewGitCommandWithRunner(tt.repoPath, runner)
+			files, err := cmd.GitDiffNameOnly(tt.path)
+
+			assert.Equal(t, tt.path, calledPath)
+			assert.Equal(t, tt.wantArgs, calledArgs)
+
+			if tt.expectErr != "" {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.expectErr)
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantFiles, files)
+		})
+	}
+}
+
+func TestGitCommand_GitDiffStat(t *testing.T) {
+	tests := []struct {
+		name      string
+		repoPath  string
+		path      string
+		runOutput string
+		runErr    error
+		wantArgs  []string
+		wantOut   string
+		expectErr string
+	}{
+		{
+			name:      "returns trimmed diff stat",
+			repoPath:  "/repo/main",
+			path:      "/repo/feature",
+			runOutput: " internal/exec/git.go | 42 ++++++\n 1 file changed, 42 insertions(+)\n",
+			wantArgs:  []string{"diff", "--stat", "HEAD"},
+			wantOut:   "internal/exec/git.go | 42 ++++++\n 1 file changed, 42 insertions(+)",
+		},
+		{
+			name:     "returns empty string for no diff",
+			repoPath: "/repo/main",
+			path:     "/repo/feature",
+			wantArgs: []string{"diff", "--stat", "HEAD"},
+			wantOut:  "",
+		},
+		{
+			name:      "returns runner error with context",
+			repoPath:  "/repo/main",
+			path:      "/repo/feature",
+			runErr:    errors.New("fatal: ambiguous argument"),
+			wantArgs:  []string{"diff", "--stat", "HEAD"},
+			expectErr: "git diff stat: fatal: ambiguous argument",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var calledPath string
+			var calledArgs []string
+
+			runner := func(repoPath string, args ...string) (string, error) {
+				calledPath = repoPath
+				calledArgs = append([]string{}, args...)
+				return tt.runOutput, tt.runErr
+			}
+
+			cmd := NewGitCommandWithRunner(tt.repoPath, runner)
+			out, err := cmd.GitDiffStat(tt.path)
+
+			assert.Equal(t, tt.path, calledPath)
+			assert.Equal(t, tt.wantArgs, calledArgs)
+
+			if tt.expectErr != "" {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.expectErr)
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantOut, out)
+		})
+	}
+}
+
 func TestRunGitCommand_IncludesOutputOnFailure(t *testing.T) {
 	_, err := runGitCommand(t.TempDir(), "not-a-real-git-subcommand")
 

@@ -3,6 +3,7 @@ package exec
 import (
 	"fmt"
 	osexec "os/exec"
+	"strconv"
 	"strings"
 
 	"github.com/m00nk0d3/nexus/internal/domain"
@@ -113,6 +114,46 @@ func (g *GitCommand) LockWorktree(path, reason string) error {
 // UnlockWorktree unlocks the worktree at path.
 func (g *GitCommand) UnlockWorktree(path string) error {
 	return g.runNoOutput("unlock worktree", "worktree", "unlock", path)
+}
+
+// GitStatus returns the short git status for the worktree at path.
+func (g *GitCommand) GitStatus(path string) (string, error) {
+	output, err := g.runner(path, "status", "--short")
+	if err != nil {
+		return "", fmt.Errorf("git status: %w", err)
+	}
+	return strings.TrimSpace(output), nil
+}
+
+// GitLog returns the last n commits for the worktree at path in oneline format.
+func (g *GitCommand) GitLog(path string, n int) (string, error) {
+	output, err := g.runner(path, "log", "--oneline", "-n", strconv.Itoa(n))
+	if err != nil {
+		return "", fmt.Errorf("git log: %w", err)
+	}
+	return strings.TrimSpace(output), nil
+}
+
+// GitDiffNameOnly returns the list of changed files for the worktree at path.
+func (g *GitCommand) GitDiffNameOnly(path string) ([]string, error) {
+	output, err := g.runner(path, "diff", "--name-only", "HEAD")
+	if err != nil {
+		return nil, fmt.Errorf("git diff name-only: %w", err)
+	}
+	trimmed := strings.TrimSpace(output)
+	if trimmed == "" {
+		return []string{}, nil
+	}
+	return strings.Split(trimmed, "\n"), nil
+}
+
+// GitDiffStat returns the diff stat for the worktree at path.
+func (g *GitCommand) GitDiffStat(path string) (string, error) {
+	output, err := g.runner(path, "diff", "--stat", "HEAD")
+	if err != nil {
+		return "", fmt.Errorf("git diff stat: %w", err)
+	}
+	return strings.TrimSpace(output), nil
 }
 
 func (g *GitCommand) run(op string, args ...string) (string, error) {
