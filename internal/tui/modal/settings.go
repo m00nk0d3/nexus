@@ -351,7 +351,7 @@ func (m *SettingsModal) cycleChoicePrev() tea.Cmd {
 	return m.saveAndNotify()
 }
 
-// saveAndNotify saves the config to disk, sets a success status message, and
+// saveAndNotifysaves the config to disk, sets a success status message, and
 // returns a batch of commands: a SettingsSavedMsg dispatch and a 3-second
 // status-clear tick.
 func (m *SettingsModal) saveAndNotify() tea.Cmd {
