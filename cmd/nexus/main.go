@@ -28,7 +28,19 @@ func run() error {
 		defer db.Close()
 	}
 
-	p := tea.NewProgram(m, tea.WithAltScreen())
+	opts := []tea.ProgramOption{tea.WithAltScreen()}
+
+	// Git Bash (mintty) doesn't support Windows Console APIs that Bubbletea
+	// uses by default on Windows. When MSYSTEM is set we're in a MINGW/MSYS2
+	// environment, so open /dev/tty directly for proper PTY-based I/O.
+	if os.Getenv("MSYSTEM") != "" {
+		tty, ttyErr := os.OpenFile("/dev/tty", os.O_RDWR, 0)
+		if ttyErr == nil {
+			opts = append(opts, tea.WithInput(tty), tea.WithOutput(tty))
+		}
+	}
+
+	p := tea.NewProgram(m, opts...)
 	_, err = p.Run()
 	return err
 }

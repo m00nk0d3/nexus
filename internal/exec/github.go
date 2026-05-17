@@ -106,7 +106,7 @@ func NewPRCommandWithRunner(repoPath string, runner commandRunner) *PRCommand {
 	return &PRCommand{repoPath: repoPath, runner: runner}
 }
 
-const prFields = "number,title,body,headRefName,author,state,labels,isDraft"
+const prFields = "number,title,body,headRefName,author,state,labels,isDraft,assignees"
 
 // ListOpenPRs returns all open pull requests via `gh pr list`.
 func (c *PRCommand) ListOpenPRs() ([]domain.PullRequest, error) {
@@ -145,14 +145,15 @@ type ghAuthor struct {
 
 // ghPR is the JSON shape returned by `gh pr list/view --json ...`.
 type ghPR struct {
-	Number      int       `json:"number"`
-	Title       string    `json:"title"`
-	Body        string    `json:"body"`
-	HeadRefName string    `json:"headRefName"`
-	Author      ghAuthor  `json:"author"`
-	State       string    `json:"state"`
-	Labels      []ghLabel `json:"labels"`
-	IsDraft     bool      `json:"isDraft"`
+	Number      int        `json:"number"`
+	Title       string     `json:"title"`
+	Body        string     `json:"body"`
+	HeadRefName string     `json:"headRefName"`
+	Author      ghAuthor   `json:"author"`
+	State       string     `json:"state"`
+	Labels      []ghLabel  `json:"labels"`
+	IsDraft     bool       `json:"isDraft"`
+	Assignees   []ghAuthor `json:"assignees"`
 }
 
 func ghPRToDomain(g ghPR) domain.PullRequest {
@@ -160,15 +161,23 @@ func ghPRToDomain(g ghPR) domain.PullRequest {
 	for i, l := range g.Labels {
 		labels[i] = l.Name
 	}
+	var assignees []string
+	if len(g.Assignees) > 0 {
+		assignees = make([]string, len(g.Assignees))
+		for i, a := range g.Assignees {
+			assignees[i] = a.Login
+		}
+	}
 	return domain.PullRequest{
-		Number:  g.Number,
-		Title:   g.Title,
-		Body:    g.Body,
-		Branch:  g.HeadRefName,
-		Author:  g.Author.Login,
-		State:   g.State,
-		Labels:  labels,
-		IsDraft: g.IsDraft,
+		Number:    g.Number,
+		Title:     g.Title,
+		Body:      g.Body,
+		Branch:    g.HeadRefName,
+		Author:    g.Author.Login,
+		State:     g.State,
+		Labels:    labels,
+		IsDraft:   g.IsDraft,
+		Assignees: assignees,
 	}
 }
 

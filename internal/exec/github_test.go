@@ -281,6 +281,43 @@ func TestListOpenPRs(t *testing.T) {
 	}
 }
 
+func TestListOpenPRs_MapsAssigneesCorrectly(t *testing.T) {
+	tests := []struct {
+		name          string
+		raw           string
+		wantAssignees []string
+	}{
+		{
+			name:          "single assignee is mapped",
+			raw:           `[{"number":1,"title":"T","labels":[],"assignees":[{"login":"alice"}]}]`,
+			wantAssignees: []string{"alice"},
+		},
+		{
+			name:          "multiple assignees are mapped",
+			raw:           `[{"number":1,"title":"T","labels":[],"assignees":[{"login":"alice"},{"login":"bob"}]}]`,
+			wantAssignees: []string{"alice", "bob"},
+		},
+		{
+			name:          "no assignees returns nil",
+			raw:           `[{"number":1,"title":"T","labels":[],"assignees":[]}]`,
+			wantAssignees: nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			runner := func(_ string, args ...string) (string, error) {
+				return tt.raw, nil
+			}
+			client := NewPRCommandWithRunner("/repo", runner)
+			prs, err := client.ListOpenPRs()
+			require.NoError(t, err)
+			require.Len(t, prs, 1)
+			assert.Equal(t, tt.wantAssignees, prs[0].Assignees)
+		})
+	}
+}
+
 func TestGetPR(t *testing.T) {
 	validPRJSON := `{"number":42,"title":"Implement feature","body":"This implements the feature.","headRefName":"feat/feature","author":{"login":"frank"},"state":"MERGED","labels":[{"name":"feature"}],"isDraft":false}`
 

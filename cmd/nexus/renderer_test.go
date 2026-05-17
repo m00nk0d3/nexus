@@ -458,7 +458,7 @@ func TestIssueHasWorktree(t *testing.T) {
 }
 
 // TestRenderPRList_ContainsHeaders verifies that renderPRList renders
-// the required column headers: #, TITLE, BRANCH, STATUS.
+// the required column headers: #, TITLE, BRANCH, ASSIGNED, STATUS.
 // Note: AUTHOR column was removed from the list (it is visible in the context panel).
 func TestRenderPRList_ContainsHeaders(t *testing.T) {
 	tests := []struct {
@@ -467,7 +467,7 @@ func TestRenderPRList_ContainsHeaders(t *testing.T) {
 	}{
 		{
 			name:   "renders all required column headers",
-			wantIn: []string{"#", "TITLE", "BRANCH", "STATUS"},
+			wantIn: []string{"#", "TITLE", "BRANCH", "ASSIGNED", "STATUS"},
 		},
 	}
 
