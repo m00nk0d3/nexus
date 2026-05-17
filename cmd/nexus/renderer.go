@@ -385,8 +385,10 @@ func buildIssueTree(issues []domain.Issue) []issueTreeRow {
 func renderIssueList(issues []domain.Issue, selectedIdx int, worktrees []domain.Worktree, theme styles.Theme, listInner, panelHeight int, focused bool) string {
 	var content strings.Builder
 	headerStyle := theme.GetStyle("table-header")
-	// 3 chars for tree prefix + 2 cursor chars replaced; net header overhead unchanged.
-	// fixed: 3(tree-pfx) + 6(#) + 1 + 11(status) + 1 + 12(assigned) + 1 + 8(labels min) + 4 = 47
+	// Row overhead breakdown (non-selected, top-level):
+	//   "  " (2) + treePfx (3) + number (6) + " " (1) + title (tw) + " " (1)
+	//   + status (11) + " " (1) + assigned (12) + " " (1) = 38 fixed chars
+	// titleWidth = listInner - 38 - labelsMin(9) = listInner - 47
 	titleWidth := listInner - 47
 	if titleWidth < 10 {
 		titleWidth = 10
@@ -394,7 +396,7 @@ func renderIssueList(issues []domain.Issue, selectedIdx int, worktrees []domain.
 	headerRow := fmt.Sprintf("   %-6s %-*s %-11s %-12s %s", "#", titleWidth, "TITLE", "STATUS", "ASSIGNED", "LABELS")
 	content.WriteString(headerStyle.Render(headerRow))
 	content.WriteString("\n")
-	labelsWidth := listInner - titleWidth - 36 // remaining after fixed overhead
+	labelsWidth := listInner - titleWidth - 38 // 38 = fixed overhead excluding title and labels
 	if labelsWidth < 8 {
 		labelsWidth = 8
 	}

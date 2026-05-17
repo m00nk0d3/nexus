@@ -768,6 +768,19 @@ func (m *Model) syncGitHubCmd() tea.Cmd {
 		}
 
 		prs, prErr := prCmd.ListOpenPRs()
+
+		// Persist enriched issues and PRs to DB so the next fresh-cache read
+		// returns hierarchy-enriched data rather than a flat list.
+		if db != nil {
+			ghRepo := data.NewGitHubRepository(db)
+			if issErr == nil {
+				_ = ghRepo.UpsertIssues(issues)
+			}
+			if prErr == nil {
+				_ = ghRepo.UpsertPRs(prs)
+			}
+		}
+
 		return githubSyncedMsg{prs: prs, issues: issues, err: errors.Join(issErr, prErr), syncedAt: time.Now()}
 	}
 }

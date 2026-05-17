@@ -347,9 +347,10 @@ func TestRenderIssueList_ContainsIssueRows(t *testing.T) {
 			wantIn:      []string{"7", "Fix the bug", "8", "Add feature"},
 		},
 		{
+			// "enhancement" (11 chars) is truncated to "enhancem…" at labelsWidth=9
 			name:        "renders issue labels",
 			selectedIdx: 0,
-			wantIn:      []string{"bug", "enhancement"},
+			wantIn:      []string{"bug", "enhancem"},
 		},
 		{
 			name:        "selected issue (idx 0) has > cursor",
