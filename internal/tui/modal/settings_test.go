@@ -94,17 +94,25 @@ func TestSettingsModal_TabNavigation(t *testing.T) {
 	m, _ = sendKey(m, tea.KeyTab)
 	assert.Equal(t, 0, m.activeTab, "tab should wrap to first tab")
 
-	// Right arrow also moves forward.
-	m, _ = sendKey(m, tea.KeyRight)
-	assert.Equal(t, 1, m.activeTab)
+	// Right arrow on a non-choice field (navigate to GitHub tab first).
+	m, _ = sendKey(m, tea.KeyTab) // → tab 1 (GitHub)
+	require.Equal(t, 1, m.activeTab)
+	m, _ = sendKey(m, tea.KeyRight) // should move to tab 2 (AI Agents)
+	assert.Equal(t, 2, m.activeTab)
 
 	// Shift+Tab moves backward.
 	m, _ = sendKey(m, tea.KeyShiftTab)
+	assert.Equal(t, 1, m.activeTab)
+
+	// Left arrow on a non-choice field moves backward.
+	m, _ = sendKey(m, tea.KeyLeft) // → tab 0 (Appearance)
 	assert.Equal(t, 0, m.activeTab)
 
-	// Left arrow moves backward with wrapping.
+	// Left arrow on a choice field (Appearance/Theme) cycles the choice, NOT the tab.
+	themeBefore := m.cfg.Appearance.Theme
 	m, _ = sendKey(m, tea.KeyLeft)
-	assert.Equal(t, len(m.tabs)-1, m.activeTab, "left from first tab should wrap to last")
+	assert.Equal(t, 0, m.activeTab, "tab should not change when Left on a choice field")
+	assert.NotEqual(t, themeBefore, m.cfg.Appearance.Theme, "theme should have cycled backward")
 }
 
 // TestSettingsModal_CursorNavigation verifies j/k and arrow keys move the cursor.
@@ -204,7 +212,7 @@ func TestSettingsView_EditStringField_SavesConfig(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// TestSettingsModal_ChoiceCycling verifies Enter on a choice field cycles values.
+// TestSettingsModal_ChoiceCycling verifies Enter/Right/Left on a choice field cycles values.
 func TestSettingsModal_ChoiceCycling(t *testing.T) {
 	m, _ := newTestModal(t)
 
@@ -226,11 +234,31 @@ func TestSettingsModal_ChoiceCycling(t *testing.T) {
 	m, _ = sendKey(m, tea.KeyEnter)
 	assert.Equal(t, styles.Themes[nextIdx], m.cfg.Appearance.Theme)
 
-	// Cycling wraps: advance to the last theme, then wrap.
-	for i := 0; i < len(styles.Themes)-1; i++ {
-		m, _ = sendKey(m, tea.KeyEnter)
+	// Right arrow also cycles forward.
+	m, _ = sendKey(m, tea.KeyRight)
+	assert.Equal(t, styles.Themes[(nextIdx+1)%len(styles.Themes)], m.cfg.Appearance.Theme)
+
+	// Left arrow cycles backward.
+	themeBefore := m.cfg.Appearance.Theme
+	m, _ = sendKey(m, tea.KeyLeft)
+	wantIdx := 0
+	for i, name := range styles.Themes {
+		if name == themeBefore {
+			wantIdx = (i - 1 + len(styles.Themes)) % len(styles.Themes)
+			break
+		}
 	}
-	assert.Equal(t, initial, m.cfg.Appearance.Theme, "should wrap back to original after full cycle")
+	assert.Equal(t, styles.Themes[wantIdx], m.cfg.Appearance.Theme)
+
+	// Cycling wraps forward: advance to the last theme, then wrap.
+	m.cfg.Appearance.Theme = styles.Themes[len(styles.Themes)-1]
+	m, _ = sendKey(m, tea.KeyEnter)
+	assert.Equal(t, styles.Themes[0], m.cfg.Appearance.Theme, "should wrap to first after last")
+
+	// Cycling wraps backward: go left from first.
+	m.cfg.Appearance.Theme = styles.Themes[0]
+	m, _ = sendKey(m, tea.KeyLeft)
+	assert.Equal(t, styles.Themes[len(styles.Themes)-1], m.cfg.Appearance.Theme, "should wrap to last when going left from first")
 }
 
 // TestSettingsModal_EscCancelsEdit verifies Esc during string editing discards the change.
