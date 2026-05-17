@@ -2,6 +2,74 @@
 
 This runbook covers day-to-day operation of Nexus and the expected procedures around setup, configuration, troubleshooting, and maintenance.
 
+---
+
+## Developer Setup
+
+This section is for contributors building and running Nexus from source.
+
+### Prerequisites
+
+| Tool | Version | Notes |
+|---|---|---|
+| [Go](https://go.dev/dl/) | 1.25+ | `go version` to verify |
+| [GitHub CLI (`gh`)](https://cli.github.com/) | Latest | `gh auth login` before running |
+| Git | Any recent | Must be in `PATH` |
+
+### Clone the repository
+
+```bash
+git clone https://github.com/m00nk0d3/nexus
+cd nexus
+```
+
+### Build
+
+```bash
+go build ./...
+```
+
+### Run (without installing)
+
+```bash
+go run ./cmd/nexus
+```
+
+Run from inside a Git repository, otherwise Nexus will warn that no worktrees are available.
+
+### Build a versioned binary
+
+```bash
+go build \
+    -ldflags "-X github.com/m00nk0d3/nexus/internal/version.Version=v0.1.0" \
+    -o nexus \
+    ./cmd/nexus
+```
+
+Move the resulting `nexus` binary to a directory on your `PATH`.
+
+### Run tests
+
+```bash
+go test ./...
+```
+
+### Release process
+
+1. Merge all changes to `main` and ensure tests pass.
+2. Create a Git tag: `git tag v0.x.0 && git push origin v0.x.0`
+3. Build the release binary with the matching version string:
+   ```bash
+   go build \
+       -ldflags "-X github.com/m00nk0d3/nexus/internal/version.Version=v0.x.0" \
+       -o nexus \
+       ./cmd/nexus
+   ```
+4. Attach the binary to the GitHub release created by the tag.
+5. Update `README.md` and this runbook if any user-facing behaviour changed.
+
+---
+
 ## Purpose
 
 Nexus is a terminal UI for managing Git worktrees, syncing GitHub data, and launching AI coding agents with the right repository context.
