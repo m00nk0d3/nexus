@@ -215,6 +215,22 @@ func TestAgentLauncherModal_PromptEnter_TrimsWhitespace(t *testing.T) {
 	assert.Equal(t, "suggest some code", spawnMsg.Prompt)
 }
 
+func TestAgentLauncherModal_EmptyPrompt_EmitsSpawnAgentMsg(t *testing.T) {
+	m := newTestLauncher()
+	m.step = stepAgentPrompt
+	m.selectedAgent = testAgentOptions[0] // Claude
+	// Leave promptInput empty (default)
+
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+
+	require.NotNil(t, cmd, "empty prompt should still emit a spawn command")
+	msg := cmd()
+	spawnMsg, ok := msg.(SpawnAgentMsg)
+	require.True(t, ok)
+	assert.Equal(t, "claude", spawnMsg.AgentName)
+	assert.Empty(t, spawnMsg.Prompt)
+}
+
 // --- Aider: skips prompt and emits SpawnAgentMsg directly ---
 
 func TestAgentLauncherModal_SelectAider_WhenAvailable_EmitsSpawnMsg(t *testing.T) {

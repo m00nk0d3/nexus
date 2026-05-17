@@ -2206,8 +2206,8 @@ func TestModel_SpawnAgentMsg_Aider_ClearsModalAndFetchesFiles(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 // TestAgentDoneMsg_NonZeroExit_ShowsErrorInStatusBar verifies that when an agent
-// exits with a non-zero code, the model's Error field is set to the expected
-// warning message so it is displayed in the status bar.
+// exits with code > 1, the model's Error field is set. Exit code 1 is treated as
+// a normal interactive quit and does not show an error.
 func TestAgentDoneMsg_NonZeroExit_ShowsErrorInStatusBar(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -2215,9 +2215,9 @@ func TestAgentDoneMsg_NonZeroExit_ShowsErrorInStatusBar(t *testing.T) {
 		wantError string
 	}{
 		{
-			name:      "exit code 1 shows warning",
+			name:      "exit code 1 is treated as normal quit (no error)",
 			exitCode:  1,
-			wantError: "⚠ Agent exited with code 1",
+			wantError: "",
 		},
 		{
 			name:      "exit code 127 shows warning",
@@ -2228,6 +2228,11 @@ func TestAgentDoneMsg_NonZeroExit_ShowsErrorInStatusBar(t *testing.T) {
 			name:      "exit code 0 does not set error",
 			exitCode:  0,
 			wantError: "",
+		},
+		{
+			name:      "exit code 2 shows warning",
+			exitCode:  2,
+			wantError: "⚠ Agent exited with code 2",
 		},
 	}
 
