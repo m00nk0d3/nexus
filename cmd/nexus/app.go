@@ -471,6 +471,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.Error = fmt.Sprintf("failed to log agent run: %v", err)
 			}
 		}
+		if msg.exitCode != 0 {
+			m.Error = fmt.Sprintf("⚠ Agent exited with code %d", msg.exitCode)
+		}
+		return m, m.refreshWorktreesCmd()
 
 	case githubSyncedMsg:
 		m.syncing = false

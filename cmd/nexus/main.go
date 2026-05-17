@@ -41,6 +41,7 @@ func run() error {
 	}
 
 	p := tea.NewProgram(m, opts...)
+	installSIGTSTP(p)
 	_, err = p.Run()
 	return err
 }
