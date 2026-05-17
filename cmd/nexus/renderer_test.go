@@ -1490,3 +1490,104 @@ func TestRenderer_IssueContextPanel_ShowsBody(t *testing.T) {
 		})
 	}
 }
+
+// ---------------------------------------------------------------------------
+// sanitizeBody & wrapLine regression tests
+// ---------------------------------------------------------------------------
+
+// TestSanitizeBody verifies that control characters (produced when PowerShell
+// interprets backtick-letter escape sequences in PR body strings) are stripped
+// without touching normal printable content or newlines.
+func TestSanitizeBody(t *testing.T) {
+	tests := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{
+			name: "strips backspace (0x08) from PR body",
+			in:   "\\buildAiderCmd\x08 rest",
+			want: "\\buildAiderCmd rest",
+		},
+		{
+			name: "strips form feed (0x0C) from PR body",
+			in:   "\\fetchFiles\x0c rest",
+			want: "\\fetchFiles rest",
+		},
+		{
+			name: "preserves newlines",
+			in:   "line one\nline two\nline three",
+			want: "line one\nline two\nline three",
+		},
+		{
+			name: "preserves tabs",
+			in:   "\tindented",
+			want: "\tindented",
+		},
+		{
+			name: "strips null bytes",
+			in:   "before\x00after",
+			want: "beforeafter",
+		},
+		{
+			name: "passes through clean body unchanged",
+			in:   "## Heading\n- list item\n`code span`",
+			want: "## Heading\n- list item\n`code span`",
+		},
+		{
+			name: "empty string",
+			in:   "",
+			want: "",
+		},
+		{
+			name: "multiple control chars in sequence",
+			in:   "\x08\x0c\x07hello\x08\x0c",
+			want: "hello",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := sanitizeBody(tt.in)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+// TestWrapLine_BreakAtZeroNotHardBreak verifies that when the only space in the
+// current window is at index 0 (leading space on the segment), wrapLine does NOT
+// hard-break mid-word. The fix is breakAt < 0 (not <= 0).
+func TestWrapLine_BreakAtZeroNotHardBreak(t *testing.T) {
+	// A segment that starts with a space followed by a long word that exceeds
+	// the wrap width. breakAt will be found at index 0 (the leading space).
+	// With the old `breakAt <= 0` guard this triggered a mid-word hard break;
+	// with the fixed `breakAt < 0` it correctly advances past the leading space.
+	s := " superlongword_that_exceeds_limit"
+	wrapped := wrapLine(s, 10)
+	for _, line := range strings.Split(wrapped, "\n") {
+		// No line should be empty due to a spurious hard break at the leading space.
+		assert.NotEqual(t, "", strings.TrimSpace(line), "wrapLine produced an unexpected empty line")
+	}
+}
+
+// TestPRContextPanel_SanitizesControlChars verifies that the PR context panel
+// strips control characters from the PR body before rendering so that terminal
+// renderers don't eat visible characters (e.g. backspace erasing a 'b').
+func TestPRContextPanel_SanitizesControlChars(t *testing.T) {
+	// Simulate a body where PowerShell turned `buildAiderCmd` into
+	// \x08uildAiderCmd (backspace + rest) and `fetchFiles` into \x0cetchFiles.
+	body := "- \\buildAiderCmd\x08 text\n- \\fetchFiles\x0cetchFiles"
+	model := NewModel()
+	require.NotNil(t, model)
+	model.view = viewPRs
+	model.prs = []domain.PullRequest{
+		{Number: 1, Title: "Test PR", Branch: "feat/test", Author: "dev", State: "OPEN", Body: body},
+	}
+	model.selectedPRIdx = 0
+
+	view := model.View()
+
+	// Control characters must not reach the rendered output.
+	assert.NotContains(t, view, "\x08", "backspace control char must be stripped")
+	assert.NotContains(t, view, "\x0c", "form-feed control char must be stripped")
+}

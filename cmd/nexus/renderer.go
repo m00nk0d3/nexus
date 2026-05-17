@@ -231,7 +231,7 @@ func renderContextPanel(view activeView, worktrees []domain.Worktree, worktreeId
 				state = "DRAFT"
 			}
 			labelsStr := formatLabels(pr.Labels)
-			body := wrapText(strings.ReplaceAll(pr.Body, "\r", ""), ctxInner)
+			body := wrapText(sanitizeBody(strings.ReplaceAll(pr.Body, "\r", "")), ctxInner)
 			if body == "" {
 				body = "(no description)"
 			}
@@ -254,7 +254,7 @@ func renderContextPanel(view activeView, worktrees []domain.Worktree, worktreeId
 				labels := wrapText(labelsStr, ctxInner-8)
 				titleTrunc := truncateStr(pr.Title, ctxInner-10) // "GH Title: " prefix = 10 chars
 				statusDot := lipgloss.NewStyle().Foreground(prStateColor(pr.State)).Render("●")
-				body := wrapText(strings.ReplaceAll(pr.Body, "\r", ""), ctxInner)
+				body := wrapText(sanitizeBody(strings.ReplaceAll(pr.Body, "\r", "")), ctxInner)
 				if body == "" {
 					body = "(no description)"
 				}
@@ -477,6 +477,24 @@ func computeCtxInner(termWidth int) int {
 	return inner
 }
 
+// sanitizeBody strips control characters from a PR/issue body that would
+// corrupt terminal rendering (e.g. backspace 0x08, form feed 0x0C produced
+// by PowerShell backtick escapes when the PR body is created via `gh pr create`
+// with double-quoted strings containing markdown code spans).
+// Line feeds (0x0A) are preserved; carriage returns are handled separately.
+func sanitizeBody(s string) string {
+	var b strings.Builder
+	b.Grow(len(s))
+	for _, r := range s {
+		if r == '\n' || r == '\t' || r >= 0x20 {
+			b.WriteRune(r)
+		}
+		// Drop all other control chars (0x00-0x1F except \n and \t),
+		// including \b (0x08, backspace) and \f (0x0C, form feed).
+	}
+	return b.String()
+}
+
 // wrapText word-wraps s to at most width runes per line.
 // Existing newlines are preserved; each segment is wrapped independently.
 // If width <= 0 the string is returned unchanged.
@@ -532,11 +550,15 @@ func wrapLine(s string, width int) string {
 					break
 				}
 			}
-			if breakAt <= 0 {
+			if breakAt < 0 {
 				// No space found — hard break at the cut point.
 				out.WriteString(string(runes[:cut]))
 				out.WriteByte('\n')
 				runes = runes[cut:]
+			} else if breakAt == 0 {
+				// Segment starts with a leading space (e.g. after a previous break).
+				// Skip it silently so we don't emit a spurious blank line.
+				runes = runes[1:]
 			} else {
 				out.WriteString(string(runes[:breakAt]))
 				out.WriteByte('\n')
