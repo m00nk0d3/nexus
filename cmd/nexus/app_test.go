@@ -2118,6 +2118,8 @@ func TestModel_SpawnAgentMsg_Copilot_ClearsModalAndReturnsCmd(t *testing.T) {
 // TestModel_SpawnAgentMsg_Claude_ClearsModalAndReturnsCmd verifies the same for claude.
 func TestModel_SpawnAgentMsg_Claude_ClearsModalAndReturnsCmd(t *testing.T) {
 	m := NewModel()
+	// Use "go" as a stand-in binary — it is always on PATH in this repo's CI environment.
+	m.Config.AIAgents.ClaudeBinary = "go"
 	m.activeModal = modal.NewAgentLauncherModal(m.Config, "/repos/nexus")
 
 	updated, cmd := m.Update(modal.SpawnAgentMsg{

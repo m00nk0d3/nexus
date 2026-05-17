@@ -312,6 +312,19 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		case tea.KeyRunes:
 			switch msg.String() {
+			case " ":
+				// Spacebar can arrive as KeyRunes " " on some terminals (e.g. Windows).
+				// Mirror the KeySpace handler above.
+				if m.view != viewWorktrees {
+					m.Error = "Agent launcher is only available in the Worktrees view — press w to switch"
+					return m, nil
+				}
+				if selected, ok := m.selectedWorktree(); ok {
+					m.activeModal = modal.NewAgentLauncherModal(m.Config, selected.Path)
+				} else {
+					m.Error = "No worktree selected — select one first"
+				}
+				return m, nil
 			case "j":
 				m.moveDown()
 				return m, nil
