@@ -40,15 +40,16 @@ func TestSaveContextSnapshot_PopulatesAllFields(t *testing.T) {
 	err = data.SaveContextSnapshot(db, wtID, ctx)
 	require.NoError(t, err, "SaveContextSnapshot should insert without error")
 
-	var gotStatus, gotFileList, gotLog string
+	var gotStatus, gotFileList, gotLog, gotDiffSummary string
 	err = db.Conn.QueryRow(
-		"SELECT git_status, file_list, recent_log FROM context_snapshots WHERE worktree_id = ?", wtID,
-	).Scan(&gotStatus, &gotFileList, &gotLog)
+		"SELECT git_status, file_list, recent_log, diff_summary FROM context_snapshots WHERE worktree_id = ?", wtID,
+	).Scan(&gotStatus, &gotFileList, &gotLog, &gotDiffSummary)
 	require.NoError(t, err)
 
 	assert.Equal(t, ctx.GitStatus, gotStatus)
 	assert.Equal(t, strings.Join(ctx.ChangedFiles, "\n"), gotFileList)
 	assert.Equal(t, ctx.RecentLog, gotLog)
+	assert.Equal(t, ctx.DiffSummary, gotDiffSummary)
 }
 
 func TestSaveContextSnapshot_EmptyChangedFiles(t *testing.T) {

@@ -16,6 +16,8 @@ func TestBuildContext_PopulatesAllFields(t *testing.T) {
 			return "", nil
 		}
 		switch args[0] {
+		case "rev-parse":
+			return "feat/issue-19\n", nil
 		case "status":
 			return "M internal/exec/git.go\n?? new_file.go\n", nil
 		case "log":
@@ -34,6 +36,7 @@ func TestBuildContext_PopulatesAllFields(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Equal(t, worktreePath, ctx.Path)
+	assert.Equal(t, "feat/issue-19", ctx.Branch)
 	assert.Equal(t, "M internal/exec/git.go\n?? new_file.go", ctx.GitStatus)
 	assert.Equal(t, "abc1234 feat: add context builder\ndef5678 fix: handle empty status", ctx.RecentLog)
 	assert.Equal(t, []string{"internal/exec/git.go", "internal/domain/context.go"}, ctx.ChangedFiles)
@@ -50,10 +53,27 @@ func TestBuildContext_EmptyRepo_ReturnsEmptyStatus(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Equal(t, "/repo/empty", ctx.Path)
+	assert.Equal(t, "", ctx.Branch)
 	assert.Equal(t, "", ctx.GitStatus)
 	assert.Equal(t, "", ctx.RecentLog)
 	assert.Equal(t, []string{}, ctx.ChangedFiles)
 	assert.Equal(t, "", ctx.DiffSummary)
+}
+
+func TestBuildContext_GitBranchError_ReturnsError(t *testing.T) {
+	runner := func(repoPath string, args ...string) (string, error) {
+		if args[0] == "rev-parse" {
+			return "", errors.New("not a git repo")
+		}
+		return "", nil
+	}
+
+	cmd := NewGitCommandWithRunner("/repo/main", runner)
+	_, err := BuildContext(cmd, "/repo/feature")
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "build context")
+	assert.Contains(t, err.Error(), "git branch")
 }
 
 func TestBuildContext_GitStatusError_ReturnsError(t *testing.T) {

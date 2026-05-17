@@ -156,6 +156,15 @@ func (g *GitCommand) GitDiffStat(path string) (string, error) {
 	return strings.TrimSpace(output), nil
 }
 
+// GitBranch returns the current branch name for the worktree at path.
+func (g *GitCommand) GitBranch(path string) (string, error) {
+	output, err := g.runner(path, "rev-parse", "--abbrev-ref", "HEAD")
+	if err != nil {
+		return "", fmt.Errorf("git branch: %w", err)
+	}
+	return strings.TrimSpace(output), nil
+}
+
 func (g *GitCommand) run(op string, args ...string) (string, error) {
 	output, err := g.runner(g.repoPath, args...)
 	if err != nil {

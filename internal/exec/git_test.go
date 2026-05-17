@@ -917,6 +917,72 @@ func TestGitCommand_GitDiffStat(t *testing.T) {
 	}
 }
 
+func TestGitCommand_GitBranch(t *testing.T) {
+	tests := []struct {
+		name      string
+		repoPath  string
+		path      string
+		runOutput string
+		runErr    error
+		wantArgs  []string
+		wantOut   string
+		expectErr string
+	}{
+		{
+			name:      "returns trimmed branch name",
+			repoPath:  "/repo/main",
+			path:      "/repo/feature",
+			runOutput: "feat/issue-19\n",
+			wantArgs:  []string{"rev-parse", "--abbrev-ref", "HEAD"},
+			wantOut:   "feat/issue-19",
+		},
+		{
+			name:      "returns HEAD for detached head state",
+			repoPath:  "/repo/main",
+			path:      "/repo/feature",
+			runOutput: "HEAD\n",
+			wantArgs:  []string{"rev-parse", "--abbrev-ref", "HEAD"},
+			wantOut:   "HEAD",
+		},
+		{
+			name:      "returns runner error with context",
+			repoPath:  "/repo/main",
+			path:      "/repo/feature",
+			runErr:    errors.New("not a git repository"),
+			wantArgs:  []string{"rev-parse", "--abbrev-ref", "HEAD"},
+			expectErr: "git branch: not a git repository",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var calledPath string
+			var calledArgs []string
+
+			runner := func(repoPath string, args ...string) (string, error) {
+				calledPath = repoPath
+				calledArgs = append([]string{}, args...)
+				return tt.runOutput, tt.runErr
+			}
+
+			cmd := NewGitCommandWithRunner(tt.repoPath, runner)
+			out, err := cmd.GitBranch(tt.path)
+
+			assert.Equal(t, tt.path, calledPath)
+			assert.Equal(t, tt.wantArgs, calledArgs)
+
+			if tt.expectErr != "" {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.expectErr)
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantOut, out)
+		})
+	}
+}
+
 func TestRunGitCommand_IncludesOutputOnFailure(t *testing.T) {
 	_, err := runGitCommand(t.TempDir(), "not-a-real-git-subcommand")
 
