@@ -216,11 +216,17 @@ func (m *SettingsModal) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyRight:
+		if m.currentField().kind == "choice" {
+			return m, m.cycleChoiceNext()
+		}
 		m.activeTab = (m.activeTab + 1) % len(m.tabs)
 		m.cursor = 0
 		return m, nil
 
 	case tea.KeyLeft:
+		if m.currentField().kind == "choice" {
+			return m, m.cycleChoicePrev()
+		}
 		m.activeTab = (m.activeTab + len(m.tabs) - 1) % len(m.tabs)
 		m.cursor = 0
 		return m, nil
@@ -280,7 +286,7 @@ func (m *SettingsModal) activateField() tea.Cmd {
 	case "bool":
 		return m.toggleBool()
 	case "choice":
-		return m.cycleChoice()
+		return m.cycleChoiceNext()
 	case "string":
 		m.editing = true
 		ti := textinput.New()
@@ -309,8 +315,8 @@ func (m *SettingsModal) toggleBool() tea.Cmd {
 	return m.saveAndNotify()
 }
 
-// cycleChoice advances the current choice field to the next option and saves.
-func (m *SettingsModal) cycleChoice() tea.Cmd {
+// cycleChoiceNext advances the current choice field to the next option and saves.
+func (m *SettingsModal) cycleChoiceNext() tea.Cmd {
 	field := m.currentField()
 	if field.kind != "choice" || len(field.choices) == 0 {
 		return nil
@@ -324,6 +330,24 @@ func (m *SettingsModal) cycleChoice() tea.Cmd {
 		}
 	}
 	field.set(m.cfg, field.choices[nextIdx])
+	return m.saveAndNotify()
+}
+
+// cycleChoicePrev moves the current choice field to the previous option and saves.
+func (m *SettingsModal) cycleChoicePrev() tea.Cmd {
+	field := m.currentField()
+	if field.kind != "choice" || len(field.choices) == 0 {
+		return nil
+	}
+	current := field.get(m.cfg)
+	prevIdx := len(field.choices) - 1
+	for i, c := range field.choices {
+		if c == current {
+			prevIdx = (i - 1 + len(field.choices)) % len(field.choices)
+			break
+		}
+	}
+	field.set(m.cfg, field.choices[prevIdx])
 	return m.saveAndNotify()
 }
 
@@ -411,10 +435,15 @@ func (m *SettingsModal) View() string {
 		hintSt := lipgloss.NewStyle().Foreground(lipgloss.Color(m.theme.Muted()))
 		keySt := lipgloss.NewStyle().Foreground(lipgloss.Color(m.theme.Accent()))
 		b.WriteString("  ")
-		b.WriteString(keySt.Render("Enter"))
-		b.WriteString(hintSt.Render(" edit  "))
-		b.WriteString(keySt.Render("Space"))
-		b.WriteString(hintSt.Render(" toggle  "))
+		if m.currentField().kind == "choice" {
+			b.WriteString(keySt.Render("← →"))
+			b.WriteString(hintSt.Render(" cycle  "))
+		} else {
+			b.WriteString(keySt.Render("Enter"))
+			b.WriteString(hintSt.Render(" edit  "))
+			b.WriteString(keySt.Render("Space"))
+			b.WriteString(hintSt.Render(" toggle  "))
+		}
 		b.WriteString(keySt.Render("Tab"))
 		b.WriteString(hintSt.Render(" tab  "))
 		b.WriteString(keySt.Render("Esc"))
@@ -434,7 +463,7 @@ func (m *SettingsModal) renderFieldValue(f settingsField) string {
 		}
 		return "[ ]"
 	case "choice":
-		return fmt.Sprintf("[ %s ▾ ]", val)
+		return fmt.Sprintf("◀ %s ▶", val)
 	default:
 		return val
 	}
