@@ -10,6 +10,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/m00nk0d3/nexus/internal/data"
 	"github.com/m00nk0d3/nexus/internal/domain"
+	"github.com/m00nk0d3/nexus/internal/tui/modal"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -1847,6 +1848,7 @@ func TestModel_Enter_InViewWorktrees_SwitchesWorktree(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
 // Phase 3: Aider launcher tests
 // ---------------------------------------------------------------------------
 
@@ -2038,4 +2040,114 @@ func TestModel_F_Key_AiderNotOnPath_SetsError(t *testing.T) {
 	assert.Nil(t, cmd)
 	assert.Contains(t, updatedModel.Error, "aider not found",
 		"error should mention that the aider binary is missing")
+}
+
+// ---------------------------------------------------------------------------
+// Phase 3: Agent launcher ([space] key + SpawnAgentMsg dispatch) tests
+// ---------------------------------------------------------------------------
+
+// TestModel_SpaceKey_InWorktreeView_WithSelection_OpensAgentLauncher verifies
+// that pressing [space] in the worktrees view with a selection opens the agent launcher modal.
+func TestModel_SpaceKey_InWorktreeView_WithSelection_OpensAgentLauncher(t *testing.T) {
+	m := NewModel()
+	m.view = viewWorktrees
+	m.Worktrees = []domain.Worktree{
+		{Path: "/repos/nexus", Branch: "main"},
+	}
+	m.selectedIdx = 0
+
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeySpace})
+	next, ok := updated.(*Model)
+	require.True(t, ok)
+
+	assert.NotNil(t, next.activeModal, "should open the agent launcher modal")
+	assert.Nil(t, cmd, "no async command needed to open the launcher")
+	assert.Empty(t, next.Error, "no error should be set")
+}
+
+// TestModel_SpaceKey_InWorktreeView_NoSelection_SetsError verifies that pressing
+// [space] with no worktree selected shows a friendly error instead of panicking.
+func TestModel_SpaceKey_InWorktreeView_NoSelection_SetsError(t *testing.T) {
+	m := NewModel()
+	m.view = viewWorktrees
+	// Worktrees is empty — nothing to select.
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeySpace})
+	next, ok := updated.(*Model)
+	require.True(t, ok)
+
+	assert.Nil(t, next.activeModal, "no modal should open when nothing is selected")
+	assert.Contains(t, next.Error, "No worktree selected")
+}
+
+// TestModel_SpaceKey_NotInWorktreeView_SetsError verifies that pressing [space]
+// outside the worktrees view surfaces a navigation hint error.
+func TestModel_SpaceKey_NotInWorktreeView_SetsError(t *testing.T) {
+	m := NewModel()
+	m.view = viewIssues
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeySpace})
+	next, ok := updated.(*Model)
+	require.True(t, ok)
+
+	assert.Nil(t, next.activeModal, "no modal should open in issues view")
+	assert.Contains(t, next.Error, "Worktrees view")
+}
+
+// TestModel_SpawnAgentMsg_Copilot_ClearsModalAndReturnsCmd verifies that
+// a SpawnAgentMsg for copilot clears the active modal and returns a spawn command.
+func TestModel_SpawnAgentMsg_Copilot_ClearsModalAndReturnsCmd(t *testing.T) {
+	m := NewModel()
+	m.Worktrees = []domain.Worktree{{Path: "/repos/nexus", Branch: "main"}}
+	m.selectedIdx = 0
+	// Prime the model with an open modal (simulate user having opened the launcher).
+	m.activeModal = modal.NewAgentLauncherModal(m.Config, "/repos/nexus")
+
+	updated, cmd := m.Update(modal.SpawnAgentMsg{
+		AgentName:    modal.AgentNameCopilot,
+		WorktreePath: "/repos/nexus",
+		Prompt:       "suggest improvements",
+	})
+	next, ok := updated.(*Model)
+	require.True(t, ok)
+
+	assert.Nil(t, next.activeModal, "modal must be cleared after SpawnAgentMsg")
+	assert.NotNil(t, cmd, "should return a spawn command for copilot")
+}
+
+// TestModel_SpawnAgentMsg_Claude_ClearsModalAndReturnsCmd verifies the same for claude.
+func TestModel_SpawnAgentMsg_Claude_ClearsModalAndReturnsCmd(t *testing.T) {
+	m := NewModel()
+	// Use "go" as a stand-in binary — it is always on PATH in this repo's CI environment.
+	m.Config.AIAgents.ClaudeBinary = "go"
+	m.activeModal = modal.NewAgentLauncherModal(m.Config, "/repos/nexus")
+
+	updated, cmd := m.Update(modal.SpawnAgentMsg{
+		AgentName:    modal.AgentNameClaude,
+		WorktreePath: "/repos/nexus",
+		Prompt:       "refactor this",
+	})
+	next, ok := updated.(*Model)
+	require.True(t, ok)
+
+	assert.Nil(t, next.activeModal, "modal must be cleared after SpawnAgentMsg")
+	assert.NotNil(t, cmd, "should return a spawn command for claude")
+}
+
+// TestModel_SpawnAgentMsg_Aider_ClearsModalAndFetchesFiles verifies that
+// SpawnAgentMsg for aider clears the modal and returns a file-fetch command.
+func TestModel_SpawnAgentMsg_Aider_ClearsModalAndFetchesFiles(t *testing.T) {
+	m := NewModel()
+	m.activeModal = modal.NewAgentLauncherModal(m.Config, "/repos/nexus")
+
+	updated, cmd := m.Update(modal.SpawnAgentMsg{
+		AgentName:    modal.AgentNameAider,
+		WorktreePath: "/repos/nexus",
+	})
+	next, ok := updated.(*Model)
+	require.True(t, ok)
+
+	assert.Nil(t, next.activeModal, "modal must be cleared after SpawnAgentMsg")
+	assert.NotNil(t, cmd, "aider should return a fetchAiderFilesCmd")
+	assert.Empty(t, next.Error, "no error should be set when aider is triggered")
 }

@@ -14,7 +14,7 @@ import (
 
 const (
 	appVersion             = "1.0"
-	footerHintsWorktrees   = "[Tab] Panel | [j/k] Navigate | [Enter] Select | [t] Theme | [g] GH | [esc] Quit"
+	footerHintsWorktrees   = "[Tab] Panel | [j/k] Navigate | [Enter] Select | [Space] Agents | [t] Theme | [g] GH | [esc] Quit"
 	footerHintsPRs         = "[Tab] Panel | [j/k] Navigate | [Enter] Checkout | [t] Theme | [g] GH | [esc] Quit"
 	footerHintsDefault     = footerHintsWorktrees
 	actionBarHints         = "[c-n] New  [c-d] Delete  [c-l] Lock | [f1] Help"
@@ -462,7 +462,6 @@ func renderFooterBar(theme styles.Theme, date string, termWidth int, syncing boo
 	if view == viewPRs {
 		hints = footerHintsPRs
 	}
-	left := fmt.Sprintf("%s  [%s]", hints, date)
 
 	var syncStatus string
 	switch {
@@ -479,12 +478,17 @@ func renderFooterBar(theme styles.Theme, date string, termWidth int, syncing boo
 		}
 	}
 
-	content := left
+	// Build the right side (date + optional sync status) first, then truncate
+	// only the hints so the sync status is never clipped on narrow terminals.
+	right := fmt.Sprintf("  [%s]", date)
 	if syncStatus != "" {
-		content = left + "  " + syncStatus
+		right += "  " + syncStatus
 	}
-	// Truncate to termWidth so the bar never wraps to a second row on narrow terminals.
-	content = truncateStr(content, termWidth)
+	maxHints := termWidth - len([]rune(right))
+	if maxHints < 0 {
+		maxHints = 0
+	}
+	content := truncateStr(hints, maxHints) + right
 
 	return theme.GetStyle("status-bar").Width(termWidth).Render(content)
 }

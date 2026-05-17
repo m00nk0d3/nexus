@@ -32,3 +32,18 @@ type ModalCancelledMsg struct{}
 type AiderLaunchMsg struct {
 	Files []string
 }
+
+// Agent name constants — used in SpawnAgentMsg.AgentName and the app dispatch switch.
+const (
+	AgentNameClaude  = "claude"
+	AgentNameCopilot = "copilot"
+	AgentNameAider   = "aider"
+)
+
+// SpawnAgentMsg is sent when the user confirms spawning an AI agent from the launcher.
+type SpawnAgentMsg struct {
+	AgentName    string   // AgentNameClaude, AgentNameCopilot, or AgentNameAider
+	WorktreePath string   // Path to the worktree directory
+	Prompt       string   // Prompt text (empty for Aider which uses file picker)
+	Files        []string // Reserved for Aider file-picker; populated in follow-on issue
+}
