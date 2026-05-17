@@ -246,6 +246,62 @@ func TestEnrichHierarchyFromBodies_ParentNotInSlice_ChildStillGetsParentNumber(t
 }
 
 // ---------------------------------------------------------------------------
+// FetchIssueHierarchy
+// ---------------------------------------------------------------------------
+
+func TestFetchIssueHierarchy_BulkQuery_ReturnsParentChildMap(t *testing.T) {
+	raw := `{"data":{"repository":{"issues":{"nodes":[
+		{"number":61,"subIssues":{"nodes":[{"number":62},{"number":63}]}},
+		{"number":62,"subIssues":{"nodes":[]}},
+		{"number":63,"subIssues":{"nodes":[]}}
+	]}}}}`
+
+	runner := func(_ string, args ...string) (string, error) { return raw, nil }
+	cmd := NewIssueCommandWithRunner("/repo", runner)
+
+	hier, err := cmd.FetchIssueHierarchy([]int{61, 62, 63}, "owner", "repo")
+
+	require.NoError(t, err)
+	require.NotNil(t, hier)
+	assert.Equal(t, []int{62, 63}, hier[61])
+	assert.Nil(t, hier[62])
+}
+
+func TestFetchIssueHierarchy_RunnerError_ReturnsNilNil(t *testing.T) {
+	runner := func(_ string, _ ...string) (string, error) {
+		return "", errors.New("gh api failed")
+	}
+	cmd := NewIssueCommandWithRunner("/repo", runner)
+
+	hier, err := cmd.FetchIssueHierarchy([]int{1}, "owner", "repo")
+
+	assert.NoError(t, err)
+	assert.Nil(t, hier)
+}
+
+func TestFetchIssueHierarchy_InvalidJSON_ReturnsNilNil(t *testing.T) {
+	runner := func(_ string, _ ...string) (string, error) { return "not-json", nil }
+	cmd := NewIssueCommandWithRunner("/repo", runner)
+
+	hier, err := cmd.FetchIssueHierarchy([]int{1}, "owner", "repo")
+
+	assert.NoError(t, err)
+	assert.Nil(t, hier)
+}
+
+func TestFetchIssueHierarchy_EmptyNumbers_StillQueriesAPI(t *testing.T) {
+	raw := `{"data":{"repository":{"issues":{"nodes":[]}}}}`
+	runner := func(_ string, _ ...string) (string, error) { return raw, nil }
+	cmd := NewIssueCommandWithRunner("/repo", runner)
+
+	// numbers slice is now ignored — func always does a bulk query
+	hier, err := cmd.FetchIssueHierarchy(nil, "owner", "repo")
+
+	assert.NoError(t, err)
+	assert.Empty(t, hier)
+}
+
+// ---------------------------------------------------------------------------
 // PRCommand — PullRequest tests
 // ---------------------------------------------------------------------------
 

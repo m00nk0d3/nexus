@@ -168,49 +168,58 @@ func (c *IssueCommand) GetRepoOwnerAndName() (string, string, error) {
 	return result.Owner.Login, result.Name, nil
 }
 
-// FetchIssueHierarchy fetches sub-issue relationships for the given issue numbers.
-// Returns map[parentNumber][]childNumbers.
+// FetchIssueHierarchy fetches sub-issue relationships for open issues in a single
+// bulk GraphQL call. Returns map[parentNumber][]childNumbers.
 // Returns nil, nil on any API error (graceful fallback — hierarchy data is optional).
-func (c *IssueCommand) FetchIssueHierarchy(numbers []int, owner, repo string) (map[int][]int, error) {
-	if len(numbers) == 0 {
-		return nil, nil
-	}
-	result := make(map[int][]int)
-	for _, num := range numbers {
-		query := fmt.Sprintf(
-			`{ repository(owner: "%s", name: "%s") { issue(number: %d) { number subIssues { nodes { number } } } } }`,
-			owner, repo, num,
-		)
-		output, err := c.runner(c.repoPath, "api", "graphql",
-			"-H", "GraphQL-Features: sub_issues",
-			"-f", "query="+query,
-		)
-		if err != nil {
-			return nil, nil // graceful fallback
+func (c *IssueCommand) FetchIssueHierarchy(_ []int, owner, repo string) (map[int][]int, error) {
+	query := `query($owner: String!, $repo: String!) {
+		repository(owner: $owner, name: $repo) {
+			issues(states: OPEN, first: 100) {
+				nodes {
+					number
+					subIssues(first: 30) {
+						nodes { number }
+					}
+				}
+			}
 		}
-		var resp struct {
-			Data struct {
-				Repository struct {
-					Issue struct {
+	}`
+	output, err := c.runner(c.repoPath, "api", "graphql",
+		"-H", "GraphQL-Features: sub_issues",
+		"-F", "owner="+owner,
+		"-F", "repo="+repo,
+		"-f", "query="+query,
+	)
+	if err != nil {
+		return nil, nil // graceful fallback
+	}
+	var resp struct {
+		Data struct {
+			Repository struct {
+				Issues struct {
+					Nodes []struct {
 						Number    int `json:"number"`
 						SubIssues struct {
 							Nodes []struct {
 								Number int `json:"number"`
 							} `json:"nodes"`
 						} `json:"subIssues"`
-					} `json:"issue"`
-				} `json:"repository"`
-			} `json:"data"`
-		}
-		if err := json.Unmarshal([]byte(output), &resp); err != nil {
-			return nil, nil // graceful fallback
-		}
-		if len(resp.Data.Repository.Issue.SubIssues.Nodes) > 0 {
-			children := make([]int, 0, len(resp.Data.Repository.Issue.SubIssues.Nodes))
-			for _, node := range resp.Data.Repository.Issue.SubIssues.Nodes {
+					} `json:"nodes"`
+				} `json:"issues"`
+			} `json:"repository"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal([]byte(output), &resp); err != nil {
+		return nil, nil // graceful fallback
+	}
+	result := make(map[int][]int)
+	for _, issue := range resp.Data.Repository.Issues.Nodes {
+		if len(issue.SubIssues.Nodes) > 0 {
+			children := make([]int, 0, len(issue.SubIssues.Nodes))
+			for _, node := range issue.SubIssues.Nodes {
 				children = append(children, node.Number)
 			}
-			result[num] = children
+			result[issue.Number] = children
 		}
 	}
 	return result, nil
