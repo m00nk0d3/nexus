@@ -969,11 +969,11 @@ func TestModel_BrowserOpenErrMsg_NilErrorNoChange(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 // TestModel_DefaultFocus_IsNavPanel verifies that a new model starts with
-// the nav panel focused (panelNav is the zero value).
-func TestModel_DefaultFocus_IsNavPanel(t *testing.T) {
+// the list panel focused by default.
+func TestModel_DefaultFocus_IsListPanel(t *testing.T) {
 	model := NewModel()
 	require.NotNil(t, model)
-	assert.Equal(t, panelNav, model.focused)
+	assert.Equal(t, panelList, model.focused)
 }
 
 // TestModel_Tab_CyclesFocusThroughPanels verifies that Tab cycles focus

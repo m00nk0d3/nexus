@@ -134,6 +134,7 @@ func NewModel() *Model {
 		Config:   cfg,
 		themeIdx: themeIdx,
 		Error:    configErr,
+		focused:  panelList,
 	}
 }
 
