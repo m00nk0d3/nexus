@@ -155,11 +155,16 @@ func (t Theme) MutedBorder(s lipgloss.Style) lipgloss.Style {
 }
 
 // RenderBox renders content inside a rounded-border panel with an optional title.
-func (t Theme) RenderBox(title, content string) string {
+// width sets the total rendered width in terminal columns; 0 means size to content.
+func (t Theme) RenderBox(title, content string, width int) string {
 	style := lipgloss.NewStyle().
 		BorderStyle(lipgloss.RoundedBorder()).
 		BorderForeground(lipgloss.Color(t.accent)).
 		Padding(0, 1)
+	// Overhead: 1 border + 1 padding on each side = 4 columns total.
+	if width > 4 {
+		style = style.Width(width - 4)
+	}
 	if title != "" {
 		return style.Render(fmt.Sprintf("%s\n%s", title, content))
 	}
