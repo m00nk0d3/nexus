@@ -98,7 +98,7 @@ func TestTheme_RenderBox_ContentsPresent(t *testing.T) {
 	theme := NewTheme("digital-noir")
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			out := theme.RenderBox(tt.title, tt.content)
+			out := theme.RenderBox(tt.title, tt.content, 0)
 			for _, want := range tt.wantIn {
 				assert.Contains(t, out, want)
 			}
