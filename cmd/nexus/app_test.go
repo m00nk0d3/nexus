@@ -418,6 +418,38 @@ func TestModelUpdate_WorktreeSwitchedMsg_ErrorHandling(t *testing.T) {
 	}
 }
 
+// TestModel_HelpModal_OpenedByF1AndQuestion verifies that F1 and ? both open a HelpModal.
+func TestModel_HelpModal_OpenedByF1AndQuestion(t *testing.T) {
+	tests := []struct {
+		name string
+		msg  tea.KeyMsg
+	}{
+		{
+			name: "F1 opens HelpModal",
+			msg:  tea.KeyMsg{Type: tea.KeyF1},
+		},
+		{
+			name: "? opens HelpModal",
+			msg:  tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("?")},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := NewModel()
+			require.NotNil(t, m)
+			require.Nil(t, m.activeModal, "no modal should be active initially")
+
+			updated, cmd := m.Update(tt.msg)
+			updatedModel, ok := updated.(*Model)
+			require.True(t, ok)
+
+			assert.IsType(t, &modal.HelpModal{}, updatedModel.activeModal, "activeModal should be a *HelpModal")
+			assert.Nil(t, cmd)
+		})
+	}
+}
+
 func TestModelUpdate_WorktreesRefreshedMsg_ClampsSelectedIndex(t *testing.T) {
 	tests := []struct {
 		name            string

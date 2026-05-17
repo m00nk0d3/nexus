@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/m00nk0d3/nexus/internal/version"
 )
 
 type helpTab int
@@ -122,8 +123,11 @@ func (m *HelpModal) View() string {
 	// Tab content (with scrolling applied)
 	lines := strings.Split(m.tabContent(), "\n")
 	start := m.scrollOffset
-	if start > len(lines) {
-		start = len(lines)
+	if maxStart := len(lines) - 1; start > maxStart {
+		start = maxStart
+	}
+	if start < 0 {
+		start = 0
 	}
 	b.WriteString(strings.Join(lines[start:], "\n"))
 
@@ -141,7 +145,7 @@ func (m *HelpModal) tabContent() string {
 	case tabTroubleshooting:
 		return troubleshootingContent
 	case tabAbout:
-		return aboutContent
+		return aboutContent()
 	}
 	return ""
 }
@@ -189,8 +193,8 @@ const tipsContent = `COMMON WORKFLOWS
    itself and resumes when the agent exits.
 
 4. Keep GitHub data fresh
-   Press r to trigger a manual sync. Nexus auto-syncs on
-   startup and at the configured interval (~5 min default).
+   Nexus auto-syncs on startup and at the configured interval
+   (~5 min default). Use Ctrl+N to fetch fresh issue data.
 
 5. Open an issue or PR in the browser
    While in the Issues or PRs view, press g to open the
@@ -228,9 +232,10 @@ Config not loading
   Fix: Check  ~/.nexus/config.toml  for TOML syntax errors.
   Delete or reset the file to restore defaults.`
 
-const aboutContent = `NEXUS — Git Worktree Orchestrator & AI Agent Hub
+func aboutContent() string {
+	return fmt.Sprintf(`NEXUS — Git Worktree Orchestrator & AI Agent Hub
 
-Version:   v1.0.0
+Version:   %s
 Repo:      github.com/m00nk0d3/nexus
 License:   MIT
 
@@ -241,4 +246,5 @@ Built with the Charm.sh ecosystem:
 
 Nexus helps you manage multiple git worktrees and
 launch AI coding agents with the correct filesystem
-context — all from a single terminal interface.`
+context — all from a single terminal interface.`, version.Version)
+}
