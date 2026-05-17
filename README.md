@@ -1,220 +1,210 @@
-# Nexus
+# NEXUS — Git Worktree Orchestrator & AI Agent Hub
 
-Nexus is a terminal-based worktree and AI-agent command center for managing Git worktrees, syncing GitHub metadata, and launching coding agents with the right repository context.
+> Manage Git worktrees, track GitHub PRs and Issues, and launch AI coding agents — all from a single terminal interface.
 
-## What it is
+![Go version](https://img.shields.io/badge/Go-1.25-00ADD8?logo=go)
+![License](https://img.shields.io/badge/license-MIT-green)
+![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-lightgrey)
 
-Nexus is designed for developers who juggle multiple branches, worktrees, pull requests, and AI-assisted workflows. The goal is to keep that workflow in one place instead of bouncing between shells, browser tabs, and separate tools.
+<!-- Screenshot placeholder — run `vhs demo.tape` to regenerate -->
+![Nexus TUI — 3-pane worktree dashboard](docs/nexus-demo.gif)
 
-## Planned capabilities
+---
 
-- Manage Git worktrees from a TUI
-- Create, delete, switch, lock, unlock, and prune worktrees
-- Sync GitHub pull requests, issues, and branches
-- Link PRs to worktrees by branch name
-- Launch AI agents with current repo context
-- Persist config, history, and cached metadata locally
-- Use a high-contrast "Digital Noir" interface theme
+## Features
 
-## Core ideas
+- **3-pane TUI** — worktree list, GitHub context panel, and detail view in one terminal window
+- **Full worktree management** — create, delete, switch shell, lock/unlock, and prune worktrees without leaving the terminal
+- **GitHub sync** — pull requests and issues fetched via the `gh` CLI and kept fresh in the background
+- **AI agent launchers** — spawn Claude Code, GitHub Copilot, or Aider in the correct worktree directory with a single keypress
+- **Theme cycling** — switch between Digital Noir, Matrix, and Light themes on the fly with `t`
+- **In-app help** — press `f1` or `?` at any time for a searchable keybindings and troubleshooting reference
+- **Local persistence** — config lives in `~/.nexus/config.toml`; metadata is cached in SQLite so Nexus starts fast
 
-### Git worktree control
+---
 
-Nexus treats worktrees as the primary unit of navigation. The app will surface:
+## Prerequisites
 
-- worktree path
-- branch name
-- short commit SHA
-- clean/dirty state
-- lock state
-- related GitHub PRs
+| Requirement | Notes |
+|---|---|
+| [Git](https://git-scm.com/) | Must be in `PATH` |
+| [GitHub CLI (`gh`)](https://cli.github.com/) | Run `gh auth login` before first use |
+| Go 1.25+ | Only needed if building from source |
+| Claude Code | Optional — enable with `claude_enabled = true` |
+| GitHub Copilot CLI | Optional — `gh extension install github/gh-copilot` |
+| Aider | Optional — `pip install aider-chat` |
 
-### GitHub sync
+---
 
-The app will periodically fetch repository metadata and keep the UI updated without blocking the main event loop. Planned data includes:
+## Installation
 
-- pull requests
-- issues
-- branches
-- reviewers, labels, authors, and statuses
+### Using go install (recommended)
 
-### AI agent launchers
-
-Nexus is planned to support three launch targets:
-
-- GitHub Copilot CLI
-- Claude Code
-- Aider
-
-Each launcher will receive the current worktree context, changed files, and related git state before it starts.
-
-## Proposed architecture
-
-Nexus is planned as a Go TUI built with the Charm.sh ecosystem:
-
-- `bubbletea` for MVU state management
-- `lipgloss` for styling
-- `bubbles` for reusable UI components
-- `gh` CLI or `go-github` for GitHub integration
-- SQLite for local persistence
-- TOML for user config
-
-## Planned layout
-
-```text
-nexus/
-├── cmd/
-│   └── nexus/
-│       └── main.go
-├── internal/
-│   ├── tui/
-│   │   ├── models/
-│   │   ├── styles/
-│   │   └── components/
-│   ├── domain/
-│   ├── data/
-│   │   └── migrations/
-│   └── exec/
-├── docs/
-│   └── PLAN.md
-└── README.md
+```bash
+go install github.com/m00nk0d3/nexus/cmd/nexus@latest
 ```
 
-## UI concept
+### Build from source
 
-The target UI is a three-column dashboard:
+```bash
+git clone https://github.com/m00nk0d3/nexus
+cd nexus
+go build -ldflags "-X github.com/m00nk0d3/nexus/internal/version.Version=v0.1.0" \
+    -o nexus ./cmd/nexus
+```
 
-1. Left rail for mode switching
-2. Middle panel for lists and tables
-3. Right panel for contextual details and actions
+Move the resulting `nexus` binary somewhere on your `PATH`.
 
-Planned screens:
+---
 
-- Worktree dashboard
-- PR browser
-- Issue browser
-- Theme selector
-- Help popup
+## Quick Start
+
+1. `cd` into any Git repository
+2. Run `nexus`
+3. Nexus opens in the **Worktrees** view — use `j`/`k` to navigate the list
+4. Press `Ctrl+N` to create a new worktree (optionally linked to a GitHub issue)
+5. Press `Enter` or `s` to open a shell inside the selected worktree
+6. Press `a`, `c`, or `Space` to launch an AI agent in that worktree's context
+
+---
 
 ## Keybindings
 
-Planned keyboard shortcuts:
+### Navigation
 
 | Key | Action |
-| --- | --- |
-| `j` / `k` | Move within a panel |
-| `h` / `l` | Switch panels |
-| `Enter` | Open selected item |
+|---|---|
+| `↑` / `↓` or `j` / `k` | Navigate within panel |
+| `←` / `→` or `h` / `l` | Switch between panels / tabs |
+| `Tab` | Cycle panel focus / tab |
+| `Enter` | Open shell in worktree / Select |
+
+### Worktree Operations
+
+| Key | Action |
+|---|---|
 | `Ctrl+N` | Create new worktree |
 | `Ctrl+D` | Delete selected worktree |
-| `Ctrl+L` | Lock or unlock worktree |
 | `s` | Open shell in worktree |
+
+### AI Agents
+
+| Key | Action |
+|---|---|
 | `a` | Spawn Claude Code |
-| `c` | Spawn Copilot |
-| `F1` / `?` | Open help |
-| `t` | Open theme selector |
+| `c` | Spawn GitHub Copilot |
+| `Space` | Unified agent launcher (shows all agents and availability) |
+
+### Views
+
+| Key | Action |
+|---|---|
+| `w` / `W` | Worktrees view |
+| `i` / `I` | Issues view |
+| `p` / `P` | PRs view |
+| `t` | Cycle themes (Digital Noir → Matrix → Light) |
+
+### Global
+
+| Key | Action |
+|---|---|
+| `f1` / `?` | Open help modal |
 | `g` | Open selected item in GitHub |
-| `r` | Refresh GitHub data |
-| `Esc` | Close popup or quit |
+| `Esc` / `Ctrl+C` | Quit |
+
+---
 
 ## Configuration
 
-Planned config file:
-
-`~/.nexus/config.toml`
-
-Example:
+Nexus reads its config from `~/.nexus/config.toml`. The file is created with defaults on first run. All fields are optional.
 
 ```toml
 [github]
-token = "ghp_xxxx"
+# Automatically sync PRs and Issues in the background.
 auto_sync = true
+
+# How often to refresh GitHub data (in minutes).
 sync_interval_minutes = 5
 
 [appearance]
-theme = "digital_noir"
-color_scheme = "high_contrast"
+# UI theme. Options: "digital-noir", "matrix", "light"
+theme = "digital-noir"
 
 [ai_agents]
+# Enable or disable individual agent launchers.
 copilot_enabled = true
-claude_enabled = true
-aider_enabled = true
+claude_enabled  = true
+aider_enabled   = false
+
+# Override the binary name/path if it differs from the default.
 claude_binary = "claude"
+aider_binary  = "aider"
 
 [worktrees]
-root_dir = "/path/to/repo"
-auto_link_prs = true
+# The branch used as the base when creating new worktrees.
+base_branch = "main"
+
+# Where new worktree directories are created, relative to the repo root.
+worktree_root = "../worktrees"
 ```
 
-## Local data
+---
 
-Planned SQLite tables:
+## AI Agent Setup
 
-- `worktrees`
-- `github_prs`
-- `github_issues`
-- `agent_history`
-- `context_snapshots`
+### GitHub Copilot
 
-## Roadmap
+```bash
+# Install the Copilot CLI extension
+gh extension install github/gh-copilot
 
-### Phase 1
+# Authenticate (if not already done)
+gh auth login
+```
 
-- Project setup
-- Core Bubble Tea app structure
-- Git worktree integration
-- Worktree list UI
-- Create/delete modals
-- Theme styling
+Enable in config (default: `true`). Trigger in Nexus: **`c`**.
 
-### Phase 2
+### Claude Code
 
-- GitHub client setup
-- TOML config loading
-- SQLite schema and migrations
-- PR and issue sync
-- Background refresh
-- Worktree-to-PR linking
+Install via the official guide: <https://docs.anthropic.com/en/docs/claude-code>
 
-### Phase 3
+The binary must be named `claude` (or set `claude_binary` to its full path). Enable in config (default: `true`). Trigger in Nexus: **`a`**.
 
-- Copilot launcher
-- Claude launcher
-- Aider launcher
-- Context builder
-- Agent history
+### Aider
 
-### Phase 4
+```bash
+pip install aider-chat
+```
 
-- Error handling
-- Help system
-- Settings screen
-- Performance tuning
-- Tests and packaging
+Set `aider_enabled = true` in `~/.nexus/config.toml`. Trigger in Nexus: **`Space`** → select Aider in the unified launcher.
 
-## Error handling goals
+---
 
-- Show cached GitHub data when the network fails
-- Provide clear messages when an agent binary is missing
-- Warn when Nexus is launched outside a Git repo
-- Prevent unsafe git command execution
+## Troubleshooting
 
-## Security goals
+| Symptom | Fix |
+|---|---|
+| Empty issues / PRs list or "gh: not logged in" | Run `gh auth login` and follow the prompts |
+| "binary not found" when spawning an agent | Install the missing tool or set `*_enabled = false` in config |
+| No worktrees visible — "git not in PATH" | Ensure Git is installed: `git --version` |
+| Deleted worktrees still appear | Run `git worktree prune` in your repo, then press `r` in Nexus |
+| Warning banner on startup — config not loading | Check `~/.nexus/config.toml` for TOML syntax errors; delete to restore defaults |
 
-- Prefer `gh` auth over raw tokens
-- Never log sensitive data
-- Keep local config permissions tight
-- Validate input before shelling out
+For more detail, press **`f1`** inside Nexus and open the **Troubleshooting** tab.
 
-## Status
+---
 
-This repository currently contains the project plan and documentation scaffolding. The implementation is still pending.
+## Contributing
 
-## Documentation
+1. Fork the repository and create a feature branch
+2. Follow the developer setup in [docs/RUNBOOK.md](docs/RUNBOOK.md)
+3. Run `go test ./...` before submitting a pull request
+4. Open a pull request against `main` with a clear description of the change
 
-- [Project plan](docs/PLAN.md)
-- [Runbook](docs/RUNBOOK.md)
+Please open an issue before starting large changes so we can align on the approach.
+
+---
 
 ## License
 
-Add a license before publishing the project publicly.
+Nexus is released under the [MIT License](LICENSE).
