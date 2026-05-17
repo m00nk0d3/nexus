@@ -283,6 +283,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 		case tea.KeyCtrlC:
 			return m, tea.Quit
+		case tea.KeyF1:
+			m.activeModal = modal.NewHelpModal()
+			return m, nil
 		case tea.KeyCtrlN:
 			return m, m.fetchIssuesCmd()
 		case tea.KeyCtrlD:
@@ -318,6 +321,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				} else {
 					m.Error = "No worktree selected — select one first"
 				}
+				return m, nil
+			case "?":
+				m.activeModal = modal.NewHelpModal()
 				return m, nil
 			case "j":
 				m.moveDown()
