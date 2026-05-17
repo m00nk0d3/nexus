@@ -23,6 +23,10 @@ archives:
 checksum:
   name_template: "checksums.txt"
 
+release:
+  draft: false
+  prerelease: auto
+
 changelog:
   sort: asc
   filters:
