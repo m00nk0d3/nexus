@@ -14,6 +14,12 @@ type WorktreeCreateConfirmedMsg struct {
 	Path   string
 }
 
+// PRWorktreeCreateConfirmedMsg is sent when the user confirms checking out a PR as a new worktree.
+type PRWorktreeCreateConfirmedMsg struct {
+	Branch string
+	Path   string
+}
+
 // WorktreeDeleteConfirmedMsg is sent when the user confirms deleting a worktree.
 type WorktreeDeleteConfirmedMsg struct {
 	Path string

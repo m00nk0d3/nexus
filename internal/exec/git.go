@@ -84,6 +84,20 @@ func (g *GitCommand) AddWorktree(path, branch string) error {
 	return g.runNoOutput("add worktree", "worktree", "add", path, branch)
 }
 
+// FetchRemoteBranch fetches the named branch from origin.
+func (g *GitCommand) FetchRemoteBranch(branch string) error {
+	return g.runNoOutput("fetch remote branch", "fetch", "origin", branch)
+}
+
+// CheckoutPRWorktree fetches a remote branch and creates a new worktree tracking it.
+// Uses -B so it works even if a local branch by that name already exists.
+func (g *GitCommand) CheckoutPRWorktree(path, branch string) error {
+	if err := g.FetchRemoteBranch(branch); err != nil {
+		return err
+	}
+	return g.runNoOutput("checkout pr worktree", "worktree", "add", "-B", branch, path, "origin/"+branch)
+}
+
 // RemoveWorktree removes the worktree at path.
 func (g *GitCommand) RemoveWorktree(path string, force bool) error {
 	args := []string{"worktree", "remove"}

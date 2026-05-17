@@ -990,3 +990,130 @@ func TestRunGitCommand_IncludesOutputOnFailure(t *testing.T) {
 	assert.Contains(t, err.Error(), "run git not-a-real-git-subcommand")
 	assert.Contains(t, err.Error(), "output:")
 }
+
+func TestGitCommand_FetchRemoteBranch(t *testing.T) {
+	tests := []struct {
+		name      string
+		repoPath  string
+		branch    string
+		runErr    error
+		wantArgs  []string
+		expectErr string
+	}{
+		{
+			name:     "fetches branch from origin",
+			repoPath: "/repo/main",
+			branch:   "feat/issue-42-my-feature",
+			wantArgs: []string{"fetch", "origin", "feat/issue-42-my-feature"},
+		},
+		{
+			name:      "propagates runner error",
+			repoPath:  "/repo/main",
+			branch:    "main",
+			runErr:    errors.New("network error"),
+			wantArgs:  []string{"fetch", "origin", "main"},
+			expectErr: "fetch remote branch:",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var called bool
+			var calledRepoPath string
+			var calledArgs []string
+
+			runner := func(repoPath string, args ...string) (string, error) {
+				called = true
+				calledRepoPath = repoPath
+				calledArgs = append([]string{}, args...)
+				return "", tt.runErr
+			}
+
+			cmd := NewGitCommandWithRunner(tt.repoPath, runner)
+			err := cmd.FetchRemoteBranch(tt.branch)
+
+			require.True(t, called, "expected command runner to be invoked")
+			assert.Equal(t, tt.repoPath, calledRepoPath)
+			assert.Equal(t, tt.wantArgs, calledArgs)
+
+			if tt.expectErr != "" {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.expectErr)
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
+}
+
+func TestGitCommand_CheckoutPRWorktree(t *testing.T) {
+	tests := []struct {
+		name         string
+		repoPath     string
+		path         string
+		branch       string
+		fetchErr     error
+		worktreeErr  error
+		wantCallSeq  [][]string
+		expectErr    string
+	}{
+		{
+			name:     "fetches then creates worktree",
+			repoPath: "/repo/main",
+			path:     "/worktrees/feat-issue-42",
+			branch:   "feat/issue-42-my-feature",
+			wantCallSeq: [][]string{
+				{"fetch", "origin", "feat/issue-42-my-feature"},
+				{"worktree", "add", "-B", "feat/issue-42-my-feature", "/worktrees/feat-issue-42", "origin/feat/issue-42-my-feature"},
+			},
+		},
+		{
+			name:      "returns error when fetch fails",
+			repoPath:  "/repo/main",
+			path:      "/worktrees/feat-issue-42",
+			branch:    "feat/issue-42-my-feature",
+			fetchErr:  errors.New("network error"),
+			expectErr: "fetch remote branch:",
+		},
+		{
+			name:        "returns error when worktree add fails",
+			repoPath:    "/repo/main",
+			path:        "/worktrees/feat-issue-42",
+			branch:      "feat/issue-42-my-feature",
+			worktreeErr: errors.New("worktree already exists"),
+			expectErr:   "checkout pr worktree:",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var callSeq [][]string
+
+			runner := func(repoPath string, args ...string) (string, error) {
+				call := append([]string{}, args...)
+				callSeq = append(callSeq, call)
+				// First call is fetch, second is worktree add.
+				if len(callSeq) == 1 && tt.fetchErr != nil {
+					return "", tt.fetchErr
+				}
+				if len(callSeq) == 2 && tt.worktreeErr != nil {
+					return "", tt.worktreeErr
+				}
+				return "", nil
+			}
+
+			cmd := NewGitCommandWithRunner(tt.repoPath, runner)
+			err := cmd.CheckoutPRWorktree(tt.path, tt.branch)
+
+			if tt.expectErr != "" {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.expectErr)
+				return
+			}
+
+			require.NoError(t, err)
+			require.Equal(t, tt.wantCallSeq, callSeq)
+		})
+	}
+}
+

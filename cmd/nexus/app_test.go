@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"os/exec"
+	"strings"
 	"testing"
 	"time"
 
@@ -318,6 +319,15 @@ func TestBuildShellCmdForOS_Windows_UsesCmdKAndDir(t *testing.T) {
 			assert.Equal(t, tt.path, cmd.Dir)
 		})
 	}
+}
+
+func TestBuildShellCmdForOS_Windows_GitBash_UsesShell(t *testing.T) {
+	path := `C:\repo\wt-feature`
+	cmd := buildShellCmdForOS(path, "windows", "/usr/bin/bash")
+	require.NotNil(t, cmd)
+	require.NotEmpty(t, cmd.Args)
+	assert.Equal(t, "/usr/bin/bash", cmd.Args[0])
+	assert.Equal(t, path, cmd.Dir)
 }
 
 func TestBuildShellCmdForOS_Unix_UsesShellAndFallback(t *testing.T) {
@@ -1722,5 +1732,117 @@ func TestModel_A_Key_BinaryNotFound_SetsError(t *testing.T) {
 	assert.Nil(t, cmd, "no cmd should be returned when binary is missing")
 	assert.Contains(t, updatedModel.Error, "claude binary not found",
 		"error should mention the missing binary")
+}
+
+// ---------------------------------------------------------------------------
+// PR Checkout / Worktree tests
+// ---------------------------------------------------------------------------
+
+// TestPRWorktreePath verifies that prWorktreePath produces the correct path
+// by replacing slashes in the branch name with dashes and joining under worktrees/.
+func TestPRWorktreePath(t *testing.T) {
+	tests := []struct {
+		name     string
+		repoPath string
+		branch   string
+		wantSlug string // just the slug portion; full path is computed via filepath.Join
+	}{
+		{
+			name:     "simple branch no slashes",
+			repoPath: "/repos/nexus",
+			branch:   "main",
+			wantSlug: "main",
+		},
+		{
+			name:     "branch with slashes converted to dashes",
+			repoPath: "/repos/nexus",
+			branch:   "feat/issue-42-my-feature",
+			wantSlug: "feat-issue-42-my-feature",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := prWorktreePath(tt.repoPath, tt.branch)
+			assert.True(t, strings.HasSuffix(got, tt.wantSlug),
+				"expected path to end with %q, got %q", tt.wantSlug, got)
+			assert.True(t, strings.Contains(got, "worktrees"),
+				"expected path to contain 'worktrees' directory, got %q", got)
+		})
+	}
+}
+
+// TestModel_Enter_InViewPRs_OpensModal verifies that pressing Enter in the PR list view
+// opens a PRCheckoutModal when no worktree exists for that branch.
+func TestModel_Enter_InViewPRs_OpensModal(t *testing.T) {
+	m := NewModel()
+	m.view = viewPRs
+	m.RepoPath = "/repos/nexus"
+	m.prs = []domain.PullRequest{
+		{Number: 1, Title: "My PR", Branch: "feat/issue-1-my-pr"},
+	}
+	m.selectedPRIdx = 0
+	m.Worktrees = []domain.Worktree{
+		{Path: "/repos/nexus", Branch: "main"},
+	}
+
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updatedModel, ok := updated.(*Model)
+	require.True(t, ok)
+
+	assert.Nil(t, cmd, "no cmd until confirmation")
+	assert.NotNil(t, updatedModel.activeModal, "modal should be open")
+}
+
+// TestModel_Enter_InViewPRs_WorktreeExists_SetsError verifies that pressing Enter
+// in the PR list shows an error when a worktree for that branch already exists.
+func TestModel_Enter_InViewPRs_WorktreeExists_SetsError(t *testing.T) {
+	m := NewModel()
+	m.view = viewPRs
+	m.RepoPath = "/repos/nexus"
+	m.prs = []domain.PullRequest{
+		{Number: 1, Title: "My PR", Branch: "feat/issue-1-my-pr"},
+	}
+	m.selectedPRIdx = 0
+	m.Worktrees = []domain.Worktree{
+		{Path: "/repos/nexus", Branch: "main"},
+		{Path: "/repos/worktrees/feat-issue-1-my-pr", Branch: "feat/issue-1-my-pr"},
+	}
+
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updatedModel, ok := updated.(*Model)
+	require.True(t, ok)
+
+	assert.Nil(t, cmd, "no cmd when error shown")
+	assert.Nil(t, updatedModel.activeModal, "no modal should be opened")
+	assert.Contains(t, updatedModel.Error, "feat/issue-1-my-pr", "error should mention the branch")
+}
+
+// TestModel_Enter_InViewPRs_EmptyList_NoOp verifies that pressing Enter in the PR
+// list with an empty list does not crash and returns no cmd.
+func TestModel_Enter_InViewPRs_EmptyList_NoOp(t *testing.T) {
+	m := NewModel()
+	m.view = viewPRs
+	m.prs = []domain.PullRequest{}
+
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updatedModel, ok := updated.(*Model)
+	require.True(t, ok)
+
+	assert.Nil(t, cmd)
+	assert.Nil(t, updatedModel.activeModal)
+}
+
+// TestModel_Enter_InViewWorktrees_SwitchesWorktree verifies that Enter still
+// switches to the selected worktree when in viewWorktrees (unchanged behavior).
+func TestModel_Enter_InViewWorktrees_SwitchesWorktree(t *testing.T) {
+	m := NewModel()
+	m.view = viewWorktrees
+	m.Worktrees = []domain.Worktree{
+		{Path: "/repos/nexus", Branch: "main"},
+	}
+	m.selectedIdx = 0
+
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	assert.NotNil(t, cmd, "should return a switchWorktreeCmd")
 }
 

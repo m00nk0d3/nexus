@@ -13,9 +13,11 @@ import (
 )
 
 const (
-	appVersion       = "1.0"
-	footerHints      = "[Tab] Panel | [j/k] Navigate | [Enter] Select | [t] Theme | [g] GH | [esc] Quit"
-	actionBarHints   = "[c-n] New  [c-d] Delete  [c-l] Lock | [f1] Help"
+	appVersion             = "1.0"
+	footerHintsWorktrees   = "[Tab] Panel | [j/k] Navigate | [Enter] Select | [t] Theme | [g] GH | [esc] Quit"
+	footerHintsPRs         = "[Tab] Panel | [j/k] Navigate | [Enter] Checkout | [t] Theme | [g] GH | [esc] Quit"
+	footerHintsDefault     = footerHintsWorktrees
+	actionBarHints         = "[c-n] New  [c-d] Delete  [c-l] Lock | [f1] Help"
 	defaultTermWidth = 120
 	navPanelInner    = 18
 	// ctxPanelInner is no longer a constant — use computeCtxInner(termWidth) instead.
@@ -88,7 +90,7 @@ func renderFull(worktrees []domain.Worktree, selectedIdx int, repoPath string, t
 
 	ctx := renderContextPanel(view, worktrees, selectedIdx, issues, selectedIssueIdx, prs, selectedPRIdx, theme, panelHeight, ctxScroll, focused == panelCtx, ctxInner)
 	mainRow := lipgloss.JoinHorizontal(lipgloss.Top, nav, list, ctx)
-	footer := renderFooterBar(theme, time.Now().UTC().Format("2006-01-02"), termWidth, syncing, lastSynced, syncErr)
+	footer := renderFooterBar(theme, time.Now().UTC().Format("2006-01-02"), termWidth, syncing, lastSynced, syncErr, view)
 	actionBar := renderActionBar(theme, termWidth)
 
 	return lipgloss.JoinVertical(lipgloss.Left, header, mainRow, footer, actionBar)
@@ -374,13 +376,15 @@ func renderPRList(prs []domain.PullRequest, selectedIdx int, theme styles.Theme,
 	}
 	// Fixed overhead: 2(cursor/spaces) + 6(#) + 1(sp) + 1(sp) + 1(sp) + 6(STATUS) = 17;
 	// plus branchWidth + 2 spaces around it = branchWidth + 2 → total fixed = 19 + branchWidth.
+	// Plus ASSIGNED column: 12 chars + 1 space = 13 → total fixed = 32 + branchWidth.
 	// titleWidth fills remaining so total row = listInner.
 	const prStatusMaxLen = 6
-	titleWidth := listInner - (11 + branchWidth + prStatusMaxLen)
+	const prAssigneeWidth = 12
+	titleWidth := listInner - (11 + branchWidth + prStatusMaxLen + prAssigneeWidth + 2)
 	if titleWidth < 10 {
 		titleWidth = 10
 	}
-	headerRow := fmt.Sprintf("  %-6s %-*s %-*s %s", "#", titleWidth, "TITLE", branchWidth, "BRANCH", "STATUS")
+	headerRow := fmt.Sprintf("  %-6s %-*s %-*s %-12s %s", "#", titleWidth, "TITLE", branchWidth, "BRANCH", "ASSIGNED", "STATUS")
 	content.WriteString(headerStyle.Render(headerRow))
 	content.WriteString("\n")
 
@@ -410,11 +414,12 @@ func renderPRList(prs []domain.PullRequest, selectedIdx int, theme styles.Theme,
 		if pr.IsDraft {
 			state = "DRAFT"
 		}
+		assigned := truncateStr(strings.Join(pr.Assignees, ","), prAssigneeWidth)
 		if i+prStartIdx == selectedIdx {
-			row := fmt.Sprintf("%-6d %-*s %-*s %s", pr.Number, titleWidth, title, branchWidth, branch, state)
+			row := fmt.Sprintf("%-6d %-*s %-*s %-12s %s", pr.Number, titleWidth, title, branchWidth, branch, assigned, state)
 			content.WriteString(theme.GetStyle("selected-row").Width(listInner).Render("> " + row))
 		} else {
-			row := fmt.Sprintf("  %-6d %-*s %-*s %s", pr.Number, titleWidth, title, branchWidth, branch, state)
+			row := fmt.Sprintf("  %-6d %-*s %-*s %-12s %s", pr.Number, titleWidth, title, branchWidth, branch, assigned, state)
 			content.WriteString(row)
 		}
 		content.WriteString("\n")
@@ -452,8 +457,12 @@ func clipContent(content string, offset, maxLines int) string {
 	return strings.Join(lines, "\n")
 }
 
-func renderFooterBar(theme styles.Theme, date string, termWidth int, syncing bool, lastSynced time.Time, syncErr error) string {
-	left := fmt.Sprintf("%s  [%s]", footerHints, date)
+func renderFooterBar(theme styles.Theme, date string, termWidth int, syncing bool, lastSynced time.Time, syncErr error, view activeView) string {
+	hints := footerHintsDefault
+	if view == viewPRs {
+		hints = footerHintsPRs
+	}
+	left := fmt.Sprintf("%s  [%s]", hints, date)
 
 	var syncStatus string
 	switch {

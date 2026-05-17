@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"time"
@@ -152,6 +153,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case modal.WorktreeCreateConfirmedMsg:
 			m.activeModal = nil
 			return m, m.addWorktreeCmd(msg.Branch, msg.Path)
+		case modal.PRWorktreeCreateConfirmedMsg:
+			m.activeModal = nil
+			return m, m.checkoutPRWorktreeCmd(msg.Branch, msg.Path)
 		case modal.WorktreeDeleteConfirmedMsg:
 			m.activeModal = nil
 			return m, m.removeWorktreeCmd(msg.Path)
@@ -235,10 +239,28 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.focused = (m.focused + 1) % panelCount
 			return m, nil
 		case tea.KeyEnter:
-			if selected, ok := m.selectedWorktree(); ok {
-				return m, m.switchWorktreeCmd(selected.Path)
+			switch m.view {
+			case viewPRs:
+				if len(m.prs) == 0 || m.selectedPRIdx >= len(m.prs) {
+					return m, nil
+				}
+				pr := m.prs[m.selectedPRIdx]
+				path := prWorktreePath(m.RepoPath, pr.Branch)
+				// Guard: if any existing worktree already uses this branch, show an error.
+				for _, wt := range m.Worktrees {
+					if wt.Branch == pr.Branch {
+						m.Error = fmt.Sprintf("Worktree for branch %q already exists at %s", pr.Branch, wt.Path)
+						return m, nil
+					}
+				}
+				m.activeModal = modal.NewPRCheckoutModal(pr, path)
+				return m, nil
+			default:
+				if selected, ok := m.selectedWorktree(); ok {
+					return m, m.switchWorktreeCmd(selected.Path)
+				}
+				return m, nil
 			}
-			return m, nil
 		case tea.KeyEsc:
 			return m, tea.Quit
 		case tea.KeyCtrlC:
@@ -507,6 +529,23 @@ func (m *Model) addWorktreeCmd(branch, path string) tea.Cmd {
 	}
 }
 
+// checkoutPRWorktreeCmd returns a Cmd that fetches a remote PR branch and creates a worktree for it.
+func (m *Model) checkoutPRWorktreeCmd(branch, path string) tea.Cmd {
+	repoPath := m.RepoPath
+	return func() tea.Msg {
+		cmd := internalexec.NewGitCommand(repoPath)
+		err := cmd.CheckoutPRWorktree(path, branch)
+		return worktreeOpDoneMsg{err: err}
+	}
+}
+
+// prWorktreePath derives the filesystem path for a PR worktree using the same
+// convention as issue worktrees: ../worktrees/<branch-with-slashes-as-dashes>.
+func prWorktreePath(repoPath, branch string) string {
+	slug := strings.ReplaceAll(branch, "/", "-")
+	return filepath.Join(filepath.Dir(repoPath), "worktrees", slug)
+}
+
 // removeWorktreeCmd returns a Cmd that removes a git worktree.
 func (m *Model) removeWorktreeCmd(path string) tea.Cmd {
 	repoPath := m.RepoPath
@@ -601,16 +640,20 @@ func (m *Model) spawnClaudeCmd(worktreePath, prompt string) tea.Cmd {
 }
 
 // buildShellCmd constructs a platform-appropriate shell command for the given directory.
-// On Windows, it uses cmd.exe with /K flag to keep the shell open.
-// On Unix-like systems, it uses the SHELL environment variable, defaulting to /bin/sh.
+// On Windows without a SHELL env var, it uses cmd.exe with /K flag to keep the shell open.
+// When SHELL is set (e.g. Git Bash), it respects that on all platforms.
 func buildShellCmd(path string) *exec.Cmd {
-	return buildShellCmdForOS(path, runtime.GOOS, getShell())
+	return buildShellCmdForOS(path, runtime.GOOS, os.Getenv("SHELL"))
 }
 
 // buildShellCmdForOS constructs a shell command for a specific OS and shell value.
 // It exists to keep buildShellCmd testable across platforms.
+// On Windows with no shell configured, it falls back to cmd.exe.
+// When shell is set (e.g. via SHELL env var in Git Bash), it is used on any OS.
 func buildShellCmdForOS(path, goos, shell string) *exec.Cmd {
-	if goos == "windows" {
+	// On Windows, prefer the SHELL env var when set (e.g. Git Bash / MSYS2).
+	// Only fall back to cmd.exe when no Unix-compatible shell is configured.
+	if goos == "windows" && shell == "" {
 		cmd := exec.Command("cmd", "/K")
 		cmd.Dir = path
 		return cmd
