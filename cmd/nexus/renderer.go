@@ -385,7 +385,7 @@ func buildIssueTree(issues []domain.Issue) []issueTreeRow {
 func renderIssueList(issues []domain.Issue, selectedIdx int, worktrees []domain.Worktree, theme styles.Theme, listInner, panelHeight int, focused bool) string {
 	var content strings.Builder
 	headerStyle := theme.GetStyle("table-header")
-	// Row overhead breakdown (non-selected, top-level):
+	// Row layout (all rows share the same column structure):
 	//   "  " (2) + treePfx (3) + number (6) + " " (1) + title (tw) + " " (1)
 	//   + status (11) + " " (1) + assigned (12) + " " (1) = 38 fixed chars
 	// titleWidth = listInner - 38 - labelsMin(9) = listInner - 47
@@ -393,7 +393,8 @@ func renderIssueList(issues []domain.Issue, selectedIdx int, worktrees []domain.
 	if titleWidth < 10 {
 		titleWidth = 10
 	}
-	headerRow := fmt.Sprintf("   %-6s %-*s %-11s %-12s %s", "#", titleWidth, "TITLE", "STATUS", "ASSIGNED", "LABELS")
+	// 5 spaces = "  " padding (2) + treePfx slot (3), aligning "#" with number column.
+	headerRow := fmt.Sprintf("     %-6s %-*s %-11s %-12s %s", "#", titleWidth, "TITLE", "STATUS", "ASSIGNED", "LABELS")
 	content.WriteString(headerStyle.Render(headerRow))
 	content.WriteString("\n")
 	labelsWidth := listInner - titleWidth - 38 // 38 = fixed overhead excluding title and labels
@@ -433,33 +434,26 @@ func renderIssueList(issues []domain.Issue, selectedIdx int, worktrees []domain.
 	for ti, row := range visible {
 		issue := row.issue
 		labels := truncateStr(strings.Join(issue.Labels, " "), labelsWidth)
-		// Reduce title width for sub-issues (prefix takes 3 chars).
-		tw := titleWidth
-		if row.prefix != "" {
-			tw -= 3
-			if tw < 1 {
-				tw = 1
-			}
+		// All rows share the same column widths; the 3-col treePfx slot is
+		// occupied by spaces for top-level issues and by "├─ "/"└─ " for children.
+		treePfx := row.prefix
+		if treePfx == "" {
+			treePfx = "   "
 		}
-		title := truncateStr(issue.Title, tw)
+		title := truncateStr(issue.Title, titleWidth)
 		status := "Open"
 		if issueHasWorktree(issue.Number, worktrees) {
 			status = "In Progress"
 		}
 		assigned := truncateStr(formatAssignees(issue.Assignees), 12)
+		statusCol := theme.StatusStyle(strings.ToLower(status)).Width(11).Render(status)
+		assignedCol := fmt.Sprintf("%-12s", assigned)
+		line := fmt.Sprintf("  %s%-6d %-*s ", treePfx, issue.Number, titleWidth, title) +
+			statusCol + " " + assignedCol + " " + labels
 		if ti+treeStartIdx == selectedTreeIdx {
-			// Selected row: always show ">  " prefix (3 chars) regardless of tree level.
-			row := fmt.Sprintf("%-6d %s%-*s %-11s %-12s %s", issue.Number, row.prefix, tw, title, status, assigned, labels)
-			content.WriteString(theme.GetStyle("selected-row").Width(listInner).Render("> " + row))
+			content.WriteString(theme.GetStyle("selected-row").Width(listInner + panelPaddingOverhead).Render(line))
 		} else {
-			treePfx := row.prefix
-			if treePfx == "" {
-				treePfx = "   " // 3 spaces for top-level non-selected rows
-			}
-			statusCol := theme.StatusStyle(strings.ToLower(status)).Width(11).Render(status)
-			assignedCol := fmt.Sprintf("%-12s", assigned)
-			prefix := fmt.Sprintf("  %s%-6d %-*s ", treePfx, issue.Number, tw, title)
-			content.WriteString(prefix + statusCol + " " + assignedCol + " " + labels)
+			content.WriteString(line)
 		}
 		content.WriteString("\n")
 	}

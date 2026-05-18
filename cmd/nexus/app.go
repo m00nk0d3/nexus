@@ -1145,9 +1145,15 @@ func (m *Model) moveDown() {
 	default: // panelList
 		switch m.view {
 		case viewIssues:
-			if m.selectedIssueIdx < len(m.issues)-1 {
-				m.selectedIssueIdx++
-				m.ctxScrollOffset = 0
+			tree := buildIssueTree(m.issues)
+			for ti, r := range tree {
+				if r.originalIdx == m.selectedIssueIdx {
+					if ti < len(tree)-1 {
+						m.selectedIssueIdx = tree[ti+1].originalIdx
+						m.ctxScrollOffset = 0
+					}
+					break
+				}
 			}
 		case viewPRs:
 			if m.selectedPRIdx < len(m.prs)-1 {
@@ -1182,9 +1188,15 @@ func (m *Model) moveUp() {
 	default: // panelList
 		switch m.view {
 		case viewIssues:
-			if m.selectedIssueIdx > 0 {
-				m.selectedIssueIdx--
-				m.ctxScrollOffset = 0
+			tree := buildIssueTree(m.issues)
+			for ti, r := range tree {
+				if r.originalIdx == m.selectedIssueIdx {
+					if ti > 0 {
+						m.selectedIssueIdx = tree[ti-1].originalIdx
+						m.ctxScrollOffset = 0
+					}
+					break
+				}
 			}
 		case viewPRs:
 			if m.selectedPRIdx > 0 {

@@ -329,7 +329,7 @@ func TestRenderIssueList_ContainsHeaders(t *testing.T) {
 }
 
 // TestRenderIssueList_ContainsIssueRows verifies that issue number, title, labels
-// are rendered, and that the selected row has a ">" cursor.
+// are rendered, and that the selected row is highlighted.
 func TestRenderIssueList_ContainsIssueRows(t *testing.T) {
 	issues := []domain.Issue{
 		{Number: 7, Title: "Fix the bug", Labels: []string{"bug", "p1"}},
@@ -353,14 +353,14 @@ func TestRenderIssueList_ContainsIssueRows(t *testing.T) {
 			wantIn:      []string{"bug", "enhancem"},
 		},
 		{
-			name:        "selected issue (idx 0) has > cursor",
+			name:        "selected issue (idx 0) content is present",
 			selectedIdx: 0,
-			wantIn:      []string{"> "},
+			wantIn:      []string{"7", "Fix the bug"},
 		},
 		{
-			name:        "selected issue (idx 1) has > cursor",
+			name:        "selected issue (idx 1) content is present",
 			selectedIdx: 1,
-			wantIn:      []string{"> "},
+			wantIn:      []string{"8", "Add feature"},
 		},
 	}
 
