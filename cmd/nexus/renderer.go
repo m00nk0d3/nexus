@@ -3,6 +3,8 @@ package main
 import (
 	"fmt"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -258,7 +260,8 @@ func renderContextPanel(view activeView, worktrees []domain.Worktree, worktreeId
 				statusDot = "◉"
 			}
 			assigneesStr := formatAssignees(iss.Assignees)
-			content = fmt.Sprintf("Context: Issue #%d\n%s\n\nStatus: %s %s\nAssigned: %s\nLabels: %s\n\n%s\n\n[g] Open in GitHub", iss.Number, title, statusDot, statusText, assigneesStr, labels, body)
+			hierarchyStr := buildIssueHierarchyStr(iss, issues, ctxInner)
+			content = fmt.Sprintf("Context: Issue #%d\n%s\n\nStatus: %s %s\nAssigned: %s\nLabels: %s%s\n\n%s\n\n[g] Open in GitHub", iss.Number, title, statusDot, statusText, assigneesStr, labels, hierarchyStr, body)
 		}
 	case viewPRs:
 		if len(prs) == 0 || prIdx < 0 || prIdx >= len(prs) {
@@ -304,9 +307,10 @@ func renderContextPanel(view activeView, worktrees []domain.Worktree, worktreeId
 			} else {
 				const pathLabel = "Path: "
 				pathTrunc := truncateStr(wt.Path, ctxInner-len(pathLabel))
+				prHint := buildPRHint(wt.Branch, issues, worktrees)
 				content = fmt.Sprintf(
-					"Context: %s\nBranch: %s\nPath: %s\n\nAGENT COMMANDS:\n[a] Spawn Claude Code\n[c] Spawn Copilot\n[f] Spawn Aider\n[s] Open Shell in WT",
-					filepath.Base(wt.Path), wt.Branch, pathTrunc,
+					"Context: %s\nBranch: %s\nPath: %s%s\n\nAGENT COMMANDS:\n[a] Spawn Claude Code\n[c] Spawn Copilot\n[f] Spawn Aider\n[s] Open Shell in WT",
+					filepath.Base(wt.Path), wt.Branch, pathTrunc, prHint,
 				)
 			}
 		}
@@ -325,56 +329,131 @@ func renderContextPanel(view activeView, worktrees []domain.Worktree, worktreeId
 	return st.Render(content)
 }
 
+// issueTreeRow represents a single row in the tree-ordered issue list.
+type issueTreeRow struct {
+	issue       domain.Issue
+	prefix      string // "", "├─ ", or "└─ "
+	originalIdx int    // index into the original flat issues slice
+}
+
+// buildIssueTree returns issues ordered depth-first: each top-level issue is
+// immediately followed by its sub-issues. The originalIdx field refers to the
+// position in the input slice so callers can map back to selectedIdx.
+func buildIssueTree(issues []domain.Issue) []issueTreeRow {
+	// Index issues by number for fast child lookup.
+	byNum := make(map[int]int, len(issues)) // number → slice index
+	for i, iss := range issues {
+		byNum[iss.Number] = i
+	}
+
+	// Identify top-level issues (no ParentNumber).
+	var rows []issueTreeRow
+	emitted := make([]bool, len(issues))
+
+	for i, iss := range issues {
+		if iss.ParentNumber != nil {
+			continue // will be emitted as a child
+		}
+		rows = append(rows, issueTreeRow{issue: iss, prefix: "", originalIdx: i})
+		emitted[i] = true
+
+		// Emit children in the order they appear in SubIssueNumbers.
+		for ci, childNum := range iss.SubIssueNumbers {
+			idx, ok := byNum[childNum]
+			if !ok {
+				continue
+			}
+			isLast := ci == len(iss.SubIssueNumbers)-1
+			pfx := "├─ "
+			if isLast {
+				pfx = "└─ "
+			}
+			rows = append(rows, issueTreeRow{issue: issues[idx], prefix: pfx, originalIdx: idx})
+			emitted[idx] = true
+		}
+	}
+
+	// Append any orphaned sub-issues (parent not in the list) at the bottom.
+	for i, iss := range issues {
+		if !emitted[i] {
+			rows = append(rows, issueTreeRow{issue: iss, prefix: "", originalIdx: i})
+		}
+	}
+	return rows
+}
+
 func renderIssueList(issues []domain.Issue, selectedIdx int, worktrees []domain.Worktree, theme styles.Theme, listInner, panelHeight int, focused bool) string {
 	var content strings.Builder
 	headerStyle := theme.GetStyle("table-header")
-	titleWidth := listInner - 46 // fixed: 2(cursor/sp) + 6(#) + 1 + 11(status) + 1 + 12(assigned) + 1 + 8(labels min) + 4 = 46
+	// Row layout (all rows share the same column structure):
+	//   "  " (2) + treePfx (3) + number (6) + " " (1) + title (tw) + " " (1)
+	//   + status (11) + " " (1) + assigned (12) + " " (1) = 38 fixed chars
+	// titleWidth = listInner - 38 - labelsMin(9) = listInner - 47
+	titleWidth := listInner - 47
 	if titleWidth < 10 {
 		titleWidth = 10
 	}
-	headerRow := fmt.Sprintf("  %-6s %-*s %-11s %-12s %s", "#", titleWidth, "TITLE", "STATUS", "ASSIGNED", "LABELS")
+	// 5 spaces = "  " padding (2) + treePfx slot (3), aligning "#" with number column.
+	headerRow := fmt.Sprintf("     %-6s %-*s %-11s %-12s %s", "#", titleWidth, "TITLE", "STATUS", "ASSIGNED", "LABELS")
 	content.WriteString(headerStyle.Render(headerRow))
 	content.WriteString("\n")
-	labelsWidth := listInner - titleWidth - 35 // remaining after fixed overhead
+	labelsWidth := listInner - titleWidth - 38 // 38 = fixed overhead excluding title and labels
 	if labelsWidth < 8 {
 		labelsWidth = 8
 	}
 
-	// Cap rendered rows and virtual-scroll so selectedIdx is always in the window.
+	// Build tree-ordered rows and find the tree index for the selected issue.
+	treeRows := buildIssueTree(issues)
+	selectedTreeIdx := 0
+	for ti, row := range treeRows {
+		if row.originalIdx == selectedIdx {
+			selectedTreeIdx = ti
+			break
+		}
+	}
+
+	// Cap rendered rows and virtual-scroll so selectedTreeIdx is always in the window.
 	// The header row occupies 1 line, so at most panelHeight-1 data rows fit.
-	issueStartIdx := 0
-	visible := issues
+	treeStartIdx := 0
+	visible := treeRows
 	if panelHeight > 0 {
 		maxItems := panelHeight - 1
 		if maxItems < 0 {
 			maxItems = 0
 		}
-		if maxItems > 0 && selectedIdx >= maxItems {
-			issueStartIdx = selectedIdx - maxItems + 1
+		if maxItems > 0 && selectedTreeIdx >= maxItems {
+			treeStartIdx = selectedTreeIdx - maxItems + 1
 		}
-		end := issueStartIdx + maxItems
-		if end > len(issues) {
-			end = len(issues)
+		end := treeStartIdx + maxItems
+		if end > len(treeRows) {
+			end = len(treeRows)
 		}
-		visible = issues[issueStartIdx:end]
+		visible = treeRows[treeStartIdx:end]
 	}
 
-	for i, issue := range visible {
+	for ti, row := range visible {
+		issue := row.issue
 		labels := truncateStr(strings.Join(issue.Labels, " "), labelsWidth)
+		// All rows share the same column widths; the 3-col treePfx slot is
+		// occupied by spaces for top-level issues and by "├─ "/"└─ " for children.
+		treePfx := row.prefix
+		if treePfx == "" {
+			treePfx = "   "
+		}
 		title := truncateStr(issue.Title, titleWidth)
 		status := "Open"
 		if issueHasWorktree(issue.Number, worktrees) {
 			status = "In Progress"
 		}
 		assigned := truncateStr(formatAssignees(issue.Assignees), 12)
-		if i+issueStartIdx == selectedIdx {
-			row := fmt.Sprintf("%-6d %-*s %-11s %-12s %s", issue.Number, titleWidth, title, status, assigned, labels)
-			content.WriteString(theme.GetStyle("selected-row").Width(listInner).Render("> " + row))
+		statusCol := theme.StatusStyle(strings.ToLower(status)).Width(11).Render(status)
+		assignedCol := fmt.Sprintf("%-12s", assigned)
+		line := fmt.Sprintf("  %s%-6d %-*s ", treePfx, issue.Number, titleWidth, title) +
+			statusCol + " " + assignedCol + " " + labels
+		if ti+treeStartIdx == selectedTreeIdx {
+			content.WriteString(theme.GetStyle("selected-row").Width(listInner + panelPaddingOverhead).Render(line))
 		} else {
-			statusCol := theme.StatusStyle(strings.ToLower(status)).Width(11).Render(status)
-			assignedCol := fmt.Sprintf("%-12s", assigned)
-			prefix := fmt.Sprintf("  %-6d %-*s ", issue.Number, titleWidth, title)
-			content.WriteString(prefix + statusCol + " " + assignedCol + " " + labels)
+			content.WriteString(line)
 		}
 		content.WriteString("\n")
 	}
@@ -802,4 +881,77 @@ func overlayBottomRight(base, overlay string, termWidth int) string {
 	}
 
 	return strings.Join(result, "\n")
+}
+
+// issueRegexp matches the issue number in branch names like "feat/issue-42-something".
+var issueRegexp = regexp.MustCompile(`issue-(\d+)`)
+
+// extractIssueNumber parses the issue number from a branch name, returning 0 if not found.
+func extractIssueNumber(branch string) int {
+	m := issueRegexp.FindStringSubmatch(branch)
+	if m == nil {
+		return 0
+	}
+	n, _ := strconv.Atoi(m[1])
+	return n
+}
+
+// buildIssueHierarchyStr returns a formatted string fragment (starting with "\n") describing
+// the parent and sub-issue relationships of the given issue, or "" when none exist.
+func buildIssueHierarchyStr(iss domain.Issue, allIssues []domain.Issue, ctxInner int) string {
+	var b strings.Builder
+	if iss.ParentNumber != nil {
+		b.WriteString(fmt.Sprintf("\nParent: #%d", *iss.ParentNumber))
+		// Look up parent title if available.
+		for _, other := range allIssues {
+			if other.Number == *iss.ParentNumber {
+				title := truncateStr(other.Title, ctxInner-12)
+				b.WriteString(" " + title)
+				break
+			}
+		}
+	}
+	if len(iss.SubIssueNumbers) > 0 {
+		b.WriteString("\nSub-issues:")
+		for _, childNum := range iss.SubIssueNumbers {
+			line := fmt.Sprintf("\n  #%d", childNum)
+			for _, other := range allIssues {
+				if other.Number == childNum {
+					line += " " + truncateStr(other.Title, ctxInner-8)
+					break
+				}
+			}
+			b.WriteString(line)
+		}
+	}
+	return b.String()
+}
+
+// buildPRHint returns a PR-target hint for a worktree that has no linked PR,
+// when the worktree belongs to a sub-issue whose parent has an open worktree.
+// Returns "" when no hint applies.
+func buildPRHint(branch string, issues []domain.Issue, worktrees []domain.Worktree) string {
+	issNum := extractIssueNumber(branch)
+	if issNum == 0 {
+		return ""
+	}
+	// Find the issue entry.
+	var theIssue *domain.Issue
+	for i := range issues {
+		if issues[i].Number == issNum {
+			theIssue = &issues[i]
+			break
+		}
+	}
+	if theIssue == nil || theIssue.ParentNumber == nil {
+		return ""
+	}
+	parentNum := *theIssue.ParentNumber
+	needle := fmt.Sprintf("issue-%d-", parentNum)
+	for _, wt := range worktrees {
+		if strings.Contains(wt.Branch, needle) {
+			return fmt.Sprintf("\n\nPR target: gh pr create --base %s", wt.Branch)
+		}
+	}
+	return ""
 }

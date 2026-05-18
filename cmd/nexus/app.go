@@ -212,7 +212,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch msg := msg.(type) {
 		case modal.WorktreeCreateConfirmedMsg:
 			m.activeModal = nil
-			return m, m.addWorktreeCmd(msg.Branch, msg.Path)
+			return m, m.addWorktreeCmd(msg.Branch, msg.Path, msg.BaseBranch)
 		case modal.PRWorktreeCreateConfirmedMsg:
 			m.activeModal = nil
 			return m, m.checkoutPRWorktreeCmd(msg.Branch, msg.Path)
@@ -502,7 +502,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case issuesFetchedMsg:
 		if msg.err == nil {
-			m.activeModal = modal.NewCreateModal(msg.issues, m.RepoPath)
+			m.activeModal = modal.NewCreateModal(msg.issues, m.RepoPath, computeParentBranches(m.issues, m.Worktrees)...)
 		}
 
 	case aiderFilesFetchedMsg:
@@ -735,17 +735,70 @@ func (m *Model) syncGitHubCmd() tea.Cmd {
 		issueCmd := internalexec.NewIssueCommand(repoPath)
 		prCmd := internalexec.NewPRCommand(repoPath)
 		issues, issErr := issueCmd.ListOpenIssues()
+
+		// Best-effort hierarchy enrichment — failures are silently ignored.
+		if issErr == nil && len(issues) > 0 {
+			owner, repo, err := issueCmd.GetRepoOwnerAndName()
+			if err == nil {
+				nums := make([]int, len(issues))
+				for i, iss := range issues {
+					nums[i] = iss.Number
+				}
+				hier, err := issueCmd.FetchIssueHierarchy(nums, owner, repo)
+				if err == nil && hier != nil {
+					// Build child→parent reverse map.
+					childToParent := make(map[int]int)
+					for parentNum, children := range hier {
+						for _, child := range children {
+							childToParent[child] = parentNum
+						}
+					}
+					for i := range issues {
+						n := issues[i].Number
+						if p, ok := childToParent[n]; ok {
+							pCopy := p
+							issues[i].ParentNumber = &pCopy
+						}
+						if children, ok := hier[n]; ok && len(children) > 0 {
+							issues[i].SubIssueNumbers = children
+						}
+					}
+				}
+			}
+			// Fallback: parse issue bodies for parent-reference patterns
+			// (catches repos that track hierarchy via body text rather than
+			// GitHub's native sub-issues API).
+			internalexec.EnrichHierarchyFromBodies(issues)
+		}
+
 		prs, prErr := prCmd.ListOpenPRs()
+
+		// Persist enriched issues and PRs to DB so the next fresh-cache read
+		// returns hierarchy-enriched data rather than a flat list.
+		if db != nil {
+			ghRepo := data.NewGitHubRepository(db)
+			if issErr == nil {
+				_ = ghRepo.UpsertIssues(issues)
+			}
+			if prErr == nil {
+				_ = ghRepo.UpsertPRs(prs)
+			}
+		}
+
 		return githubSyncedMsg{prs: prs, issues: issues, err: errors.Join(issErr, prErr), syncedAt: time.Now()}
 	}
 }
 
-// addWorktreeCmd returns a Cmd that creates a new git worktree with a new branch from main.
-func (m *Model) addWorktreeCmd(branch, path string) tea.Cmd {
+// addWorktreeCmd returns a Cmd that creates a new git worktree with a new branch.
+// baseBranch is the branch to base off; empty string defaults to "main".
+func (m *Model) addWorktreeCmd(branch, path, baseBranch string) tea.Cmd {
+	if baseBranch == "" {
+		baseBranch = "main"
+	}
 	repoPath := m.RepoPath
 	return func() tea.Msg {
 		cmd := internalexec.NewGitCommand(repoPath)
-		err := cmd.AddWorktreeNewBranch(path, branch, "main")
+		err := cmd.AddWorktreeNewBranch(path, branch, baseBranch)
 		return worktreeOpDoneMsg{err: err}
 	}
 }
@@ -765,6 +818,26 @@ func (m *Model) checkoutPRWorktreeCmd(branch, path string) tea.Cmd {
 func prWorktreePath(repoPath, branch string) string {
 	slug := strings.ReplaceAll(branch, "/", "-")
 	return filepath.Join(filepath.Dir(repoPath), "worktrees", slug)
+}
+
+// computeParentBranches returns the branches of any worktrees associated with
+// parent issues (i.e., issues that have sub-issues). Used to populate the base
+// branch picker in the create-worktree modal.
+func computeParentBranches(issues []domain.Issue, worktrees []domain.Worktree) []string {
+	var branches []string
+	for _, iss := range issues {
+		if len(iss.SubIssueNumbers) == 0 {
+			continue
+		}
+		needle := fmt.Sprintf("issue-%d-", iss.Number)
+		for _, wt := range worktrees {
+			if strings.Contains(wt.Branch, needle) {
+				branches = append(branches, wt.Branch)
+				break
+			}
+		}
+	}
+	return branches
 }
 
 // removeWorktreeCmd returns a Cmd that removes a git worktree.
@@ -1072,9 +1145,15 @@ func (m *Model) moveDown() {
 	default: // panelList
 		switch m.view {
 		case viewIssues:
-			if m.selectedIssueIdx < len(m.issues)-1 {
-				m.selectedIssueIdx++
-				m.ctxScrollOffset = 0
+			tree := buildIssueTree(m.issues)
+			for ti, r := range tree {
+				if r.originalIdx == m.selectedIssueIdx {
+					if ti < len(tree)-1 {
+						m.selectedIssueIdx = tree[ti+1].originalIdx
+						m.ctxScrollOffset = 0
+					}
+					break
+				}
 			}
 		case viewPRs:
 			if m.selectedPRIdx < len(m.prs)-1 {
@@ -1109,9 +1188,15 @@ func (m *Model) moveUp() {
 	default: // panelList
 		switch m.view {
 		case viewIssues:
-			if m.selectedIssueIdx > 0 {
-				m.selectedIssueIdx--
-				m.ctxScrollOffset = 0
+			tree := buildIssueTree(m.issues)
+			for ti, r := range tree {
+				if r.originalIdx == m.selectedIssueIdx {
+					if ti > 0 {
+						m.selectedIssueIdx = tree[ti-1].originalIdx
+						m.ctxScrollOffset = 0
+					}
+					break
+				}
 			}
 		case viewPRs:
 			if m.selectedPRIdx > 0 {
